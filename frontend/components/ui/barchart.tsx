@@ -17,7 +17,8 @@ interface SHIData {
 }
 
 interface Props {
-  date: string; // YYYY-MM-DD
+  startDate: string;
+  endDate: string;
 }
 
 const getColor = (v: number): string => {
@@ -27,28 +28,31 @@ const getColor = (v: number): string => {
   return "#3B82F6"; 
 };
 
-export default function BarChartSHI({ date = new Date().toISOString().split('T')[0] }: Props) {
+export default function BarChartSHI({ startDate, endDate }: Props) {
   const [data, setData] = useState<SHIData[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!date) return;
+    if (!startDate || !endDate) return;
 
     setLoading(true);
 
-    dataAPI.getBarChart(date)
+    dataAPI.getBarChart(startDate, endDate)
       .then((res) => res.json())
       .then((data) => {
         setData(data || []);
       })
       .finally(() => setLoading(false));
-  }, [date]);
+  }, [startDate, endDate]);
 
   return (
     <div className="p-6 bg-white rounded-2xl shadow-md text-center">
       <h2 className="text-2xl font-semibold mb-4">
         Perbandingan Indeks Kebahagiaan per Kelas
       </h2>
+      <p className="text-xs text-slate-500 mb-4">
+        Periode: {startDate || "-"} s.d. {endDate || "-"}
+      </p>
 
       {loading ? (
         <div className="text-gray-500">Loading...</div>

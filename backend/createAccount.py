@@ -1,6 +1,7 @@
 from flask_mail import Message, Mail
 from app import app, db
-from model import User, PasswordResetToken
+from app.models import User
+from app.models import PasswordResetToken
 import secrets
 from datetime import datetime, timedelta
 import os
@@ -97,7 +98,6 @@ def createAcc(email):
 
 def makeAcc(nama, nis, email):
     user = User(
-        username=nis,
         fullname=nama,
         email=email,
         password_hash="masihkosong",

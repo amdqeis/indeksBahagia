@@ -4,27 +4,29 @@ import React, { useEffect, useState } from "react";
 import { dataAPI } from "@/lib/api";
 
 interface ApiResponse {
-  kode: string;
+  fullname: string;
   latest_score: number;
   trend: number;
 }
 
 interface StudentTrend {
-  kode: string;
+  fullname: string;
   trend: number;
   lastScore: number;
 }
 
 interface Top5Props {
   kelas: string;
-  date: string;
+  startDate: string;
+  endDate: string;
   title?: string;
   fontSize?: string;
 }
 
 export default function Top5TrenMenurun({
   kelas,
-  date,
+  startDate,
+  endDate,
   title = "Top 5 Siswa dengan Tren Menurun",
   fontSize = "text-sm",
 }: Top5Props) {
@@ -37,12 +39,12 @@ export default function Top5TrenMenurun({
       setLoading(true);
 
       try {
-        const response = await dataAPI.getTopLowTren(kelas, date);
+        const response = await dataAPI.getTopLowTren(kelas, startDate, endDate);
         const result: ApiResponse[] = await response.json();
 
         // mapping field API → komponen
         const mapped: StudentTrend[] = result.map((r) => ({
-          kode: r.kode,
+          fullname: r.fullname,
           trend: r.trend,
           lastScore: r.latest_score,
         }));
@@ -54,12 +56,11 @@ export default function Top5TrenMenurun({
       } finally {
         setLoading(false);
       }
-      const interval = setInterval(fetchData, 60000); // panggil ulang setiap 5 detik
-      return () => clearInterval(interval)
     };
 
+    if (!kelas || !startDate || !endDate) return;
     fetchData();
-  }, [kelas, date]);
+  }, [kelas, startDate, endDate]);
 
   // Loading dummy 5 row
   if (loading) {
@@ -79,17 +80,17 @@ export default function Top5TrenMenurun({
   // Ambil 5 item atau isi placeholder
   const filledRows = [...data.slice(0, 5)];
   while (filledRows.length < 5) {
-    filledRows.push({ kode: "-", trend: 0, lastScore: 0 });
+    filledRows.push({ fullname: "-", trend: 0, lastScore: 0 });
   }
 
   return (
-    <div className="bg-white p-4 rounded-xl shadow-md w-full">
+    <div className="bg-white p-4 rounded-xl shadow-md border border-slate-100 w-full">
       <h2 className="text-lg font-semibold mb-3">{title}</h2>
 
       <table className="w-full border-collapse">
         <thead>
           <tr className="bg-gray-100">
-            <th className={`text-left px-3 py-2 ${fontSize}`}>Kode</th>
+            <th className={`text-left px-3 py-2 ${fontSize}`}>Nama Lengkap</th>
             <th className={`text-left px-3 py-2 ${fontSize}`}>Tren 7 Hari</th>
             <th className={`text-left px-3 py-2 ${fontSize}`}>Skor Terakhir</th>
           </tr>
@@ -97,7 +98,7 @@ export default function Top5TrenMenurun({
 
         <tbody>
           {filledRows.map((siswa, index) => {
-            const isPlaceholder = siswa.kode === "-";
+            const isPlaceholder = siswa.fullname === "-";
 
             return (
               <tr
@@ -109,7 +110,7 @@ export default function Top5TrenMenurun({
                     isPlaceholder ? "text-gray-400" : ""
                   }`}
                 >
-                  {siswa.kode}
+                  {siswa.fullname}
                 </td>
 
                 <td

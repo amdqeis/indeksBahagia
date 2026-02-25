@@ -2,11 +2,13 @@
 
 from flask import request, jsonify, session
 from . import api
-from model import db, User, RecordSiswaHarian, RecordSiswaMingguan, Note 
+from ..models import User, RecordSiswaHarian, RecordSiswaMingguan, Note, SchoolClass
 from sqlalchemy import or_, desc, asc, func, case, extract
 from sqlalchemy.orm import aliased
 from datetime import datetime, date, timedelta
 import calendar
+from app.extentions import db
+from ..constants import is_valid_class_name, normalize_class_name
 
 # --- Helper untuk Cek Otorisasi (MODIFIED) ---
 def check_teacher_admin_access():
@@ -47,7 +49,7 @@ def get_siswa():
     per_page = request.args.get('per_page', 10, type=int)
     search = request.args.get('search', '')
     ui_kelas_filter = request.args.get('kelas', '') # Filter dari UI dropdown
-    sort_by = request.args.get('sort_by', 'username')
+    sort_by = request.args.get('sort_by', 'email')
     sort_order = request.args.get('sort_order', 'asc')
 
     # Subquery untuk Skor Harian Terbaru
@@ -82,6 +84,9 @@ def get_siswa():
 
     # Terapkan filter dari UI (Dropdown Kelas)
     if ui_kelas_filter:
+        ui_kelas_filter = normalize_class_name(ui_kelas_filter)
+        if not ui_kelas_filter or not is_valid_class_name(ui_kelas_filter):
+            return jsonify({"message": "Filter kelas tidak valid"}), 400
         query = query.filter(User.kelas == ui_kelas_filter)
 
     # Terapkan filter pencarian
@@ -89,7 +94,6 @@ def get_siswa():
         search_term = f"%{search}%"
         query = query.filter(
             or_(
-                User.username.ilike(search_term),
                 User.email.ilike(search_term),
                 User.kode.ilike(search_term),
                 User.kelas.ilike(search_term)
@@ -97,7 +101,7 @@ def get_siswa():
         )
 
     # Terapkan sorting
-    sort_column = getattr(User, sort_by, User.username)
+    sort_column = getattr(User, sort_by, User.email)
     if sort_order == 'desc':
         query = query.order_by(desc(sort_column))
     else:
@@ -110,7 +114,6 @@ def get_siswa():
     for user, skor in results:
         data.append({
             "id": user.id,
-            "username": user.username,
             "email": user.email,
             "role": user.role, # Role di sini akan selalu 'user'
             "kode": user.kode,
@@ -136,14 +139,12 @@ def get_siswa_filter_options():
     
     # === PERUBAHAN LOGIKA ROLE ===
     if current_user.role == 'admin':
-        # Admin melihat semua kelas siswa
-        kelas_list_q = db.session.query(User.kelas).distinct().filter(
-            User.kelas.isnot(None), User.role == 'user'
-        ).order_by(User.kelas).all()
+        # Admin melihat semua kelas tetap dari master kelas
+        kelas_list_q = db.session.query(SchoolClass.name).order_by(SchoolClass.name).all()
         
     elif current_user.role == 'guru':
         # Guru hanya melihat kelasnya di dropdown
-        if current_user.kelas:
+        if current_user.kelas and is_valid_class_name(current_user.kelas):
             kelas_list_q = [(current_user.kelas,)] 
         else:
             kelas_list_q = []
@@ -173,7 +174,7 @@ def get_siswa_dashboard(id):
     latest_record = RecordSiswaHarian.query.filter_by(user_id=id).order_by(RecordSiswaHarian.date.desc()).first()
     
     Creator = aliased(User)
-    catatan_data = db.session.query(Note, Creator.username).join(
+    catatan_data = db.session.query(Note, Creator.email).join(
         Creator, Note.creator_id == Creator.id
     ).filter(
         Note.target_id == id
@@ -184,8 +185,8 @@ def get_siswa_dashboard(id):
             "id": note.id,
             "date": note.date.isoformat(),
             "message": note.message,
-            "creator_name": creator_username
-        } for note, creator_username in catatan_data
+            "creator_name": creator_email
+        } for note, creator_email in catatan_data
     ]
     
     alert_data = RecordSiswaHarian.query.filter(
@@ -204,7 +205,6 @@ def get_siswa_dashboard(id):
 
     dashboard_data = {
         "id": target_siswa.id,
-        "username": target_siswa.username,
         "email": target_siswa.email,
         "role": target_siswa.role,
         "kode": target_siswa.kode,
@@ -399,7 +399,7 @@ def add_note():
                 "id": new_note.id,
                 "date": new_note.date.isoformat(),
                 "message": new_note.message,
-                "creator_name": creator.username
+                "creator_name": creator.email
             }
         }), 201
         

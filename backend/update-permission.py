@@ -1,5 +1,5 @@
 from app import app, db
-from model import RecordSiswaHarianPermission, RecordSiswaMingguanPermission
+from app.models import SystemSetting
 from datetime import datetime
 
 app.app_context().push()
@@ -7,14 +7,14 @@ app.app_context().push()
 today = datetime.today().weekday()
 
 if today in [0, 1, 2, 3]:
-    RecordSiswaHarianPermission.query.update({"is_active":True})
+    SystemSetting.SystemSetting.query.filter_by(key="is_survey_harian_active").update({"value": "True"})
 else:
-    RecordSiswaHarianPermission.query.update({"is_active":False})
+    SystemSetting.SystemSetting.query.filter_by(key="is_survey_harian_active").update({"value": "False"})
     
 if today == 4:
-    RecordSiswaMingguanPermission.query.update({"is_active":True})
+    SystemSetting.SystemSetting.query.filter_by(key="is_survey_mingguan_active").update({"value": "True"})
 else:
-    RecordSiswaMingguanPermission.query.update({"is_active":False})
+    SystemSetting.SystemSetting.query.filter_by(key="is_survey_mingguan_active").update({"value": "False"})
     
 db.session.commit()
 

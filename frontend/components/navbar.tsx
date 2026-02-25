@@ -5,12 +5,13 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { Home, BarChart3, FileInput, FileText, LogIn, LogOut, User, Menu, X, ListCheckIcon, Table, ListOrdered, ListOrderedIcon } from "lucide-react"
+import { Home, BarChart3, LogIn, LogOut, User, Menu, X, ListCheckIcon, ListOrderedIcon, Settings } from "lucide-react"
 import { useAuth } from "@/hooks/use-auth"
 
 const navItems = [
   { href: "/", label: "Home", icon: Home },
   { href: "/dashboard", label: "Dashboard", icon: BarChart3, requireAuth: true, requireRole: ["admin", "guru"] },
+  { href: "/admin/account-settings", label: "Account Settings", icon: Settings, requireAuth: true, requireRole: ["admin"] },
   { href: "/survey-control", label: "Survey", icon: ListCheckIcon, requireAuth: true, requireRole: ["admin", "guru"] },
   { href: "/survey", label: "Survey", icon: ListCheckIcon, requireAuth: true, requireRole: ["user"] },
   { href: "/data-siswa", label: "Lihat Data", icon: ListOrderedIcon, requireAuth: true, requireRole: ["admin", "guru"] },
@@ -87,7 +88,7 @@ export default function Navbar() {
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="flex items-center">
                     <User className="h-4 w-4 mr-2" />
-                    {user?.username}
+                    {user?.email}
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
@@ -147,7 +148,7 @@ export default function Navbar() {
                 <div className="border-t pt-4">
                   <div className="flex items-center px-3 py-2 text-base font-medium text-gray-600">
                     <User className="h-5 w-5 mr-3" />
-                    {user?.username}
+                    {user?.email}
                   </div>
                   <button
                     onClick={logout}

@@ -31,7 +31,7 @@ export default function RouteGuard({ children, requireAuth = false, allowedRoles
         return
       }
     }
-  }, [isLoggedIn, isLoading, requireAuth, redirectTo, router])
+  }, [isLoggedIn, isLoading, requireAuth, redirectTo, router, allowedRoles, role])
 
   // Show loading spinner while checking authentication
   if (isLoading) {

@@ -1,16 +1,26 @@
 from flask import request, jsonify, session
 from . import api
-from model import db, RecordSiswaHarian, RecordSiswaMingguan, RecordSiswaHarianPermission, User, RecordSiswaMingguanPermission
+from ..models import RecordSiswaHarian, RecordSiswaMingguan, SystemSetting, User
 from datetime import date
 from sqlalchemy import func
+from app.extentions import db
+
+def get_system_setting():
+    return SystemSetting.query.first()
 
 @api.route('/submit-form-harian', methods=["POST"])
 def submit_form_harian():
     data = request.get_json()
+    setting = get_system_setting()
+
+    if not setting:
+        return jsonify({
+            'message': 'Pengaturan survey belum diinisialisasi'
+        }), 400
     
-    permit = RecordSiswaHarianPermission.query.first()
+    permit = setting.is_survey_harian_active
     
-    if not permit.is_active:
+    if not permit:
         return jsonify({
             'message': 'Akses survey sudah ditutup'
         }), 400
@@ -40,10 +50,16 @@ def submit_form_harian():
 @api.route('/submit-form-mingguan', methods=["POST"])
 def submit_form_mingguan():
     data = request.get_json()
+    setting = get_system_setting()
 
-    permit = RecordSiswaMingguanPermission.query.first()
+    if not setting:
+        return jsonify({
+            'message': 'Pengaturan survey belum diinisialisasi'
+        }), 400
+
+    permit = setting.is_survey_mingguan_active
     
-    if not permit.is_active:
+    if not permit:
         return jsonify({
             'message': 'Akses survey sudah ditutup'
         }), 400
@@ -93,9 +109,12 @@ def submit_form_mingguan():
 @api.route('/status-survey', methods=['POST'])
 def status_survey():
     kelas = session.get('kelas')
+    setting = get_system_setting()
     
     if not kelas:
         return jsonify({"error": "Parameter 'kelas' diperlukan"}), 400
+    if not setting:
+        return jsonify({"error": "Pengaturan survey belum diinisialisasi"}), 400
     
     data = request.get_json()
     
@@ -106,60 +125,42 @@ def status_survey():
     survey_type = data["type"]
     
     if survey_type == "harian":
-        res = RecordSiswaHarianPermission.query.filter_by(kelas=kelas).first()
-        if not res:
-            res = RecordSiswaHarianPermission(
-                kelas=kelas,
-                is_active=False
-            )
-            db.session.add(res)
-            db.session.commit()
-        
         return jsonify({
-            'isOpen' : res.is_active,
+            'isOpen' : setting.is_survey_harian_active,
             'message': 'success'   
         }), 200
     
     if survey_type == "mingguan":
-        res = RecordSiswaMingguanPermission.query.filter_by(kelas=kelas).first()
-        if not res:
-            res = RecordSiswaMingguanPermission(
-                kelas=kelas,
-                is_active=False
-            )
-            db.session.add(res)
-            db.session.commit()
-        
         return jsonify({
-            'isOpen' : res.is_active,
+            'isOpen' : setting.is_survey_mingguan_active,
             'message': 'success'   
         }), 200
     
     
     pass
 
-@api.route('/toggle-survey', methods=['POST'])
-def toggle_survey():
-    kelas = session.get('kelas')
-    data = request.get_json()
-    tipe = data.get('type')
-    action = data.get('action') 
+# @api.route('/toggle-survey', methods=['POST'])
+# def toggle_survey():
+#     kelas = session.get('kelas')
+#     data = request.get_json()
+#     tipe = data.get('type')
+#     action = data.get('action') 
     
-    if tipe == "harian":
-        change = RecordSiswaHarianPermission.query.filter_by(kelas=kelas).first()
-        if action == "open":
-            change.is_active = True
-        if action == "close":
-            change.is_active = False
-        db.session.commit()
-    if tipe == "mingguan":
-        change = RecordSiswaMingguanPermission.query.filter_by(kelas=kelas).first()
-        if action == "open":
-            change.is_active = True
-        if action == "close":
-            change.is_active = False
-        db.session.commit()
-    return jsonify({}), 200
+#     if tipe == "harian":
+#         change = RecordSiswaHarianPermission.query.filter_by(kelas=kelas).first()
+#         if action == "open":
+#             change.is_active = True
+#         if action == "close":
+#             change.is_active = False
+#         db.session.commit()
+#     if tipe == "mingguan":
+#         change = RecordSiswaMingguanPermission.query.filter_by(kelas=kelas).first()
+#         if action == "open":
+#             change.is_active = True
+#         if action == "close":
+#             change.is_active = False
+#         db.session.commit()
+#     return jsonify({}), 200
 
 @api.route('/valid-input/<string:tipe>', methods=['GET', 'POST'])
 def valid_input(tipe):

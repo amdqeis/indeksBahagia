@@ -5,16 +5,18 @@ import { dataAPI } from "@/lib/api";
 
 interface HeatmapProps {
   kelas: string;
-  date: string;
+  startDate: string;
+  endDate: string;
 }
 
 export default function HeatmapKebahagiaan({
   kelas,
-  date = new Date().toISOString().split("T")[0]
+  startDate,
+  endDate
 }: HeatmapProps){
   const [students, setStudents] = useState<string[]>([]);
   const [datesList, setDatesList] = useState<string[]>([]);
-  const [values, setValues] = useState<Record<string, Record<string, number | null>>>({});
+  const [values, setValues] = useState<Array<Array<number | null>>>([]);
   const [totalStudents, setTotalStudents] = useState<number>(0);
 
   // Pagination
@@ -32,20 +34,25 @@ export default function HeatmapKebahagiaan({
   }, []);
 
   useEffect(() => {
+    if (!kelas || !startDate || !endDate) return;
     fetchHeatmap(page);
-  }, [page, kelas, date]);
+  }, [page, kelas, startDate, endDate]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [kelas, startDate, endDate]);
 
   // Fetch Data
   const fetchHeatmap = async (pageNumber: number) => {
     try {
-      const response = await dataAPI.getHeatMap(kelas|| "", date, pageNumber, limit);
+      const response = await dataAPI.getHeatMap(kelas|| "", startDate, endDate, pageNumber, limit);
       const json = await response.json();
 
       // console.log("JSON :: ", json)
 
       setStudents(json.students || []);
       setDatesList(json.dates || []);
-      setValues(json.values || {});
+      setValues(json.values || []);
       setTotalStudents(json.total_students || 0);
     } catch (error) {
       console.error("Error loading heatmap:", error);
@@ -56,7 +63,6 @@ export default function HeatmapKebahagiaan({
   const totalPages = Math.ceil(totalStudents / limit);
 
   const getColor = (value: number | null) => {
-    console.log("VALUES FOR COLOR", value)
     if (value === null) return "bg-gray-200";
     if (value >= 80) return "bg-[#3B82F6]";
     if (value >= 60) return "bg-[#5BE12C]";
@@ -75,7 +81,7 @@ export default function HeatmapKebahagiaan({
   }
 
   return (
-    <div className="bg-white p-4 rounded-xl shadow-md w-full overflow-auto">
+    <div className="bg-white p-4 rounded-xl shadow-md border border-slate-100 w-full overflow-auto">
       <h2 className="text-lg font-semibold mb-4">
         Heatmap Kebahagiaan per Kelas (Page {page}/{totalPages})
       </h2>
@@ -95,7 +101,7 @@ export default function HeatmapKebahagiaan({
             <div className="text-sm font-medium py-2 border-b">{student}</div>
 
             {datesList.map((d, j) => {
-              const value = values?.[i]?.[j] ?? null;
+              const value = values[i]?.[j] ?? null;
 
               return (
                 <div

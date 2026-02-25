@@ -23,7 +23,7 @@ function LoginPageContent() {
   const [error, setError] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
-  const { login, role } = useAuth()
+  const { login } = useAuth()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -31,15 +31,15 @@ function LoginPageContent() {
     setError("")
 
     try {
-      const success = await login(formData)
-      if (!success) {
+      const result = await login(formData)
+      if (!result.success) {
         setError("Invalid username or password")
-      } else if (role === "user") {
+      } else if (result.role === "user") {
         router.push("/survey")
-      } else if (role === "guru") {
+      } else if (result.role === "guru") {
         router.push("/survey")
-      } else if (role === "admin") {
-        router.push("/admin/dashboard")
+      } else if (result.role === "admin") {
+        router.push("/admin/account-settings")
       } else{
         setError("Akun tidak valid")
       }

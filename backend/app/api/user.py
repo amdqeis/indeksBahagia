@@ -2,10 +2,12 @@ from flask_mail import Message, Mail
 from . import api
 from flask_bcrypt import Bcrypt
 from flask import session, request, jsonify
-from model import db, User, PasswordResetToken
+from ..models import User, PasswordResetToken, SchoolClass
 from datetime import datetime, timedelta
 import secrets
 import os
+from app.extentions import db
+from ..constants import FIXED_CLASS_LIST
 
 
 bcrypt = Bcrypt()
@@ -139,7 +141,6 @@ def check_auth():
                 'authenticated': True,
                 'user': {
                     'id': user.id,
-                    'username': user.username,
                     'email': user.email,
                     'role': user.role
                 }
@@ -150,15 +151,15 @@ def check_auth():
 @api.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
-    username = data.get('username')
+    email = data.get('email')
     password = data.get('password')
     
-    user = User.query.filter_by(username=username).first() or User.query.filter_by(email=username).first()
+    user = User.query.filter_by(email=email).first()
     
     if user and bcrypt.check_password_hash(user.password_hash, password):
         session.permanent = True
         session['user_id'] = user.id
-        session['username'] = user.username
+        session['email'] = user.email
         session['role'] = user.role
         session['kelas'] = user.kelas
         
@@ -166,7 +167,6 @@ def login():
             'message': 'Login successful',
             'user': {
                 'id': user.id,
-                'username': user.username,
                 'email': user.email,
                 'role': user.role
             }
@@ -184,11 +184,12 @@ def access_classes():
     role = session.get('role')
     kelas = session.get('kelas')
     
-    if not role or not kelas:
+    if not role:
         return jsonify({'message': 'error'}), 400
     if role in ['admin', 'superadmin']:
-        access = [row.kelas for row in db.session.query(User.kelas).distinct().order_by(User.kelas).all()]
-        print(access)
+        access = [row.name for row in SchoolClass.query.order_by(SchoolClass.name).all()]
+        if not access:
+            access = FIXED_CLASS_LIST
 
         
         kelasList = [
@@ -203,6 +204,8 @@ def access_classes():
         
         return jsonify(kelasList), 200
     
+    if not kelas:
+        return jsonify({'message': 'error'}), 400
     
     return jsonify([{
         'label': kelas,
@@ -303,20 +306,12 @@ def reset_account():
     data = request.get_json()
     
     token = data.get('token')
-    username = data.get('username')
     password = data.get('password')
     
     usedToken = PasswordResetToken.query.filter(PasswordResetToken.token == token).first()
     usedToken.used = True
     
-    exist = User.query.filter_by(username=username).first()
-    if exist:
-        return jsonify({
-            'message' : 'Username sudah terdaftar'
-        }), 400
-    
     user = User.query.get(usedToken.user_id)
-    user.username = username
     user.password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
     db.session.commit()
 

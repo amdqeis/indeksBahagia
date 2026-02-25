@@ -1,10 +1,16 @@
 import random
-from app import app, db, bcrypt
+from app.extentions import db, bcrypt
+from app import create_app
 from datetime import datetime, timedelta
-from model import User, RecordSiswaHarian, RecordSiswaMingguan, Note
+from app.models.user import User
+from app.models.school_class import SchoolClass
+from app.models.record import RecordSiswaHarian, RecordSiswaMingguan
+from app.models.note import Note
+from app.constants import FIXED_CLASS_LIST
 from faker import Faker
 
 fake = Faker("id_ID")
+app = create_app()
 app.app_context().push()
 
 ROLES = ["admin", "guru", "user"]
@@ -12,16 +18,20 @@ ROLES = ["admin", "guru", "user"]
 def create_users(jumlah=200):
     users = []
     guru = []
-    kelas = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    kelas = FIXED_CLASS_LIST
     i = 0
+
+    existing_classes = {row.name for row in SchoolClass.query.all()}
+    for class_name in kelas:
+        if class_name not in existing_classes:
+            db.session.add(SchoolClass(name=class_name))
+    db.session.commit()
     
     for x in kelas:
-        username = fake.user_name() + str(random.randint(10, 99))
         fullname = fake.name()
         email = fake.unique.email()
 
         user = User(
-            username=username,
             fullname=fullname,
             email=email,
             password_hash=bcrypt.generate_password_hash("123123").decode('utf-8'),
@@ -34,12 +44,10 @@ def create_users(jumlah=200):
         i += 1
         for _ in range(int(jumlah / len(kelas))):
             print("---------CREATE-------------")
-            username = fake.user_name() + str(random.randint(10, 99))
             fullname = fake.name()
             email = fake.unique.email()
 
             user = User(
-                username=username,
                 fullname=fullname,
                 email=email,
                 password_hash=bcrypt.generate_password_hash("123123").decode('utf-8'),
@@ -141,7 +149,5 @@ def generate_dummy():
 
     print("Selesai! Dummy data berhasil dibuat.")
 
-
 if __name__ == "__main__":
     generate_dummy()
-

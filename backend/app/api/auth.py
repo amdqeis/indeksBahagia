@@ -1,6 +1,6 @@
 from . import api
 from flask import request, jsonify
-from model import PasswordResetToken
+from ..models import PasswordResetToken
 from datetime import datetime
 
 @api.route('/validate-token', methods=['GET'])

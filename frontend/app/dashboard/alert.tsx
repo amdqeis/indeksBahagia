@@ -7,7 +7,8 @@ import { dataAPI } from "@/lib/api";
 
 interface AlertDashboardProps {
   kelas?: string;
-  date?: string;
+  startDate: string;
+  endDate: string;
 }
 
 interface AlertData {
@@ -18,15 +19,17 @@ interface AlertData {
 
 function AlertDashboard({
   kelas,
-  date = new Date().toISOString().split("T")[0],
+  startDate,
+  endDate,
 }: AlertDashboardProps) {
   
   const [alertData, setAlertData] = useState<AlertData | null>(null);
 
   const fetchData = async () => {
     try {
-      console.log(" X Kelas dan Date:", { kelas, date });
-        const alertResponse = await dataAPI.getAlerts(kelas || "", date);
+      if (!kelas || !startDate || !endDate) return;
+      console.log(" X Kelas dan Date:", { kelas, startDate, endDate });
+        const alertResponse = await dataAPI.getAlerts(kelas || "", startDate, endDate);
         const Data = await alertResponse.json();
         console.log("✅ Alert response:", Data);
   
@@ -43,7 +46,7 @@ function AlertDashboard({
       fetchData();
       const interval = setInterval(fetchData, 5000); // panggil ulang setiap 5 detik
       return () => clearInterval(interval); // bersihkan saat komponen unmount
-    }, [kelas, date]);
+    }, [kelas, startDate, endDate]);
   
 
   return (

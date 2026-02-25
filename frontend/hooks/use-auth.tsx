@@ -10,7 +10,7 @@ export type UserRole = "guest" | "user" | "guru" | "admin" | null
 
 interface User {
   id: number
-  username: string
+  fullname?: string
   email: string
   role: string
 }
@@ -20,7 +20,7 @@ interface AuthContextType {
   isLoggedIn: boolean
   isLoading: boolean
   role: UserRole
-  login: (credentials: { username: string; password: string }) => Promise<boolean>
+  login: (credentials: { username: string; password: string }) => Promise<{ success: boolean; role: UserRole }>
   logout: () => void
 }
 
@@ -60,20 +60,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const login = async (credentials: { username: string; password: string }): Promise<boolean> => {
+  const login = async (
+    credentials: { username: string; password: string },
+  ): Promise<{ success: boolean; role: UserRole }> => {
     try {
-      const response = await authAPI.login(credentials)
+      const response = await authAPI.login({
+        email: credentials.username,
+        password: credentials.password,
+      })
       const data = await response.json()
 
       if (response.ok) {
         setUser(data.user)
-        return true
+        setRole(data.user.role)
+        return { success: true, role: data.user.role }
       } else {
         throw new Error(data.message || "Login failed")
       }
     } catch (error) {
       console.error("Login error:", error)
-      return false
+      return { success: false, role: null }
     }
   }
 
@@ -84,6 +90,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error("Logout error:", error)
     } finally {
       setUser(null)
+      setRole(null)
       router.push("/")
     }
   }

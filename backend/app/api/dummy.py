@@ -4,16 +4,15 @@ from flask_bcrypt import Bcrypt
 from faker import Faker
 import random
 from datetime import datetime, timedelta, date
-
-from model import (
-    db,
+from app.extentions import db
+from ..models import (
     User,
+    SchoolClass,
     RecordSiswaHarian,
     RecordSiswaMingguan,
-    RecordSiswaHarianPermission,
-    RecordSiswaMingguanPermission,
     Note
 )
+from ..constants import FIXED_CLASS_LIST
 
 bcrypt = Bcrypt()
 faker = Faker("id_ID")  # Menggunakan region Indonesia
@@ -25,11 +24,7 @@ TOTAL_SISWA = 50          # Jumlah siswa yang akan dibuat
 TOTAL_GURU = 5            # Jumlah guru
 TOTAL_ADMIN = 2           # Jumlah admin
 RENTANG_HARI = 40         # Data record untuk 40 hari ke belakang
-KELAS_LIST = [            # Daftar kelas SMA
-    "10-1", "10-2", 
-    "11-1", "11-2", 
-    "12-1", "12-2"
-]
+KELAS_LIST = FIXED_CLASS_LIST
 PASSWORD_DEFAULT = "123456" # Password default untuk semua user
 
 # Pilihan untuk Survey Mingguan (sesuai frontend)
@@ -39,13 +34,17 @@ OPSI_KEHADIRAN = ["Baik", "Sedang", "Perlu Perbaikan"]
 @api.route('/generate-dummy-data', methods=['GET'])
 def generate_dummy_data():
     try:
+        existing_classes = {row.name for row in SchoolClass.query.all()}
+        for class_name in KELAS_LIST:
+            if class_name not in existing_classes:
+                db.session.add(SchoolClass(name=class_name))
+        db.session.commit()
+
         # 1. BERSIHKAN DATABASE LAMA (Opsional, agar data bersih)
         # Hati-hati, ini akan menghapus semua data!
         db.session.query(Note).delete()
         db.session.query(RecordSiswaHarian).delete()
         db.session.query(RecordSiswaMingguan).delete()
-        db.session.query(RecordSiswaHarianPermission).delete()
-        db.session.query(RecordSiswaMingguanPermission).delete()
         db.session.query(User).delete()
         db.session.commit()
 
@@ -60,7 +59,7 @@ def generate_dummy_data():
         # 2. BUAT ADMIN
         for i in range(TOTAL_ADMIN):
             admin = User(
-                username=f"admin{i+1}",
+                fullname=f"Admin {i+1}",
                 email=f"admin{i+1}@sekolah.id",
                 password_hash=hashed_pw,
                 role="admin",
@@ -72,7 +71,7 @@ def generate_dummy_data():
         # 3. BUAT GURU
         for i in range(TOTAL_GURU):
             guru = User(
-                username=f"guru{i+1}",
+                fullname=f"Guru {i+1}",
                 email=f"guru{i+1}@sekolah.id",
                 password_hash=hashed_pw,
                 role="guru",
@@ -86,7 +85,7 @@ def generate_dummy_data():
         for i in range(TOTAL_SISWA):
             kelas_siswa = random.choice(KELAS_LIST)
             siswa = User(
-                username=f"siswa{i+1}", # Atau faker.user_name()
+                fullname=f"Siswa {i+1}",
                 email=f"siswa{i+1}@sekolah.id",
                 password_hash=hashed_pw,
                 role="user",
@@ -100,18 +99,7 @@ def generate_dummy_data():
         db.session.commit()
         print(f"--- {TOTAL_SISWA} Siswa, {TOTAL_GURU} Guru, {TOTAL_ADMIN} Admin dibuat ---")
 
-        # 5. BUKA AKSES SURVEY (PERMISSION)
-        for k in KELAS_LIST:
-            # Izin Harian
-            perm_harian = RecordSiswaHarianPermission(kelas=k, is_active=True)
-            db.session.add(perm_harian)
-            # Izin Mingguan
-            perm_mingguan = RecordSiswaMingguanPermission(kelas=k, is_active=True)
-            db.session.add(perm_mingguan)
-        
-        db.session.commit()
-
-        # 6. GENERATE RECORD (HARIAN & MINGGUAN)
+        # 5. GENERATE RECORD (HARIAN & MINGGUAN)
         today = date.today()
         records_harian = []
         records_mingguan = []
@@ -168,7 +156,7 @@ def generate_dummy_data():
         db.session.commit()
         print(f"--- Records Harian & Mingguan untuk {RENTANG_HARI} hari terakhir dibuat ---")
 
-        # 7. GENERATE NOTES (CATATAN GURU UNTUK SISWA)
+        # 6. GENERATE NOTES (CATATAN GURU UNTUK SISWA)
         # Buat beberapa note acak
         notes = []
         for _ in range(30): # 30 catatan acak
