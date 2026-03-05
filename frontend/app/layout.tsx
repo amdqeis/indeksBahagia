@@ -4,12 +4,18 @@ import { Inter } from "next/font/google"
 import "./globals.css"
 import Navbar from "@/components/navbar"
 import { AuthProvider } from "@/hooks/use-auth"
+import PageTransition from "@/components/page-transition"
 
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
   title: "Survey Arrafi",
   description: "Platform digital untuk pemantauan tingkat kebahagiaan di sekolah Arrafi",
+  icons:{
+    icon: "/logo.png",
+    shortcut: "/logo.png",
+    apple: "/logo.png",
+  }
 }
 
 export default function RootLayout({
@@ -22,7 +28,9 @@ export default function RootLayout({
       <body className={inter.className}>
         <AuthProvider>
           <Navbar />
-          <main>{children}</main>
+          <main className="relative overflow-x-clip">
+            <PageTransition>{children}</PageTransition>
+          </main>
         </AuthProvider>
       </body>
     </html>

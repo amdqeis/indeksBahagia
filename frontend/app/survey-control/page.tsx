@@ -55,16 +55,30 @@ function InputDataContent() {
 
           <TabsContent value="harian">
             <SurveyHarianReponse />
-            <br />
-            <div className="flex items-center justify-between w-full bg-white border border-gray-200 rounded-2xl shadow-md p-4">
-              <WordCloud type="harian" />
+            <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="mb-4">
+                <h2 className="text-lg font-semibold text-slate-800">WordCloud Respon Harian</h2>
+                <p className="text-sm text-slate-600">
+                  Visualisasi kata yang paling sering muncul dari jawaban terbuka siswa pada survey harian.
+                </p>
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-3">
+                <WordCloud type="harian" />
+              </div>
             </div>
           </TabsContent>
           <TabsContent value="mingguan">
             <SurveyMingguanResponse />
-            <br />
-            <div className="flex items-center justify-between w-full bg-white border border-gray-200 rounded-2xl shadow-md p-4">
-              <WordCloud type="mingguan" />
+            <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="mb-4">
+                <h2 className="text-lg font-semibold text-slate-800">WordCloud Respon Mingguan</h2>
+                <p className="text-sm text-slate-600">
+                  Visualisasi kata yang paling sering muncul dari jawaban terbuka siswa pada survey mingguan.
+                </p>
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-3">
+                <WordCloud type="mingguan" />
+              </div>
             </div>
           </TabsContent>
         </Tabs>

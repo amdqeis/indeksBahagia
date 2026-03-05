@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { dataAPI } from "@/lib/api";
 
 interface Word {
@@ -21,6 +21,13 @@ interface WordCloudProps {
   height?: number;
 }
 
+interface BBox {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
 const vibrantColors = [
   "#FF6B6B",
   "#4ECDC4",
@@ -36,16 +43,36 @@ const vibrantColors = [
 
 const WordCloud: React.FC<WordCloudProps> = ({
   type,
-  width = 600,
-  height = 400,
+  width,
+  height = 320,
 }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(width ?? 600);
   const [positions, setPositions] = useState<PositionedWord[]>([]);
+  const cloudWidth = useMemo(() => (width && width > 0 ? width : containerWidth), [width, containerWidth]);
+  const cloudHeight = height;
+
+  useEffect(() => {
+    if (width) return;
+    const element = containerRef.current;
+    if (!element) return;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const nextWidth = Math.max(320, Math.floor(entry.contentRect.width));
+      setContainerWidth(nextWidth);
+    });
+
+    resizeObserver.observe(element);
+    return () => resizeObserver.disconnect();
+  }, [width]);
 
   useEffect(() => {
     fetchWords();
     const interval = setInterval(fetchWords, 20000); // panggil ulang setiap 20 detik
     return () => clearInterval(interval); // bersihkan saat komponen unmount
-  }, [type]);
+  }, [type, cloudWidth, cloudHeight]);
 
   const fetchWords = async () => {
     try {
@@ -105,12 +132,12 @@ const WordCloud: React.FC<WordCloudProps> = ({
     color: string,
     placed: PositionedWord[]
   ): PositionedWord | null => {
-    const centerX = width / 2;
-    const centerY = height / 2;
+    const centerX = cloudWidth / 2;
+    const centerY = cloudHeight / 2;
     let radius = 0;
     let theta = 0;
 
-    while (radius < Math.max(width, height)) {
+    while (radius < Math.max(cloudWidth, cloudHeight)) {
       const x = centerX + radius * Math.cos(theta);
       const y = centerY + radius * Math.sin(theta);
 
@@ -127,7 +154,7 @@ const WordCloud: React.FC<WordCloudProps> = ({
     return null;
   };
 
-  const getBBox = (text: string, size: number, x: number, y: number, angle: number) => {
+  const getBBox = (text: string, size: number, x: number, y: number, angle: number): BBox => {
     const baseWidth = text.length * (size * 0.6);
     const baseHeight = size;
 
@@ -147,7 +174,7 @@ const WordCloud: React.FC<WordCloudProps> = ({
     };
   };
 
-  const isOverlapping = (box: any, placed: PositionedWord[]) =>
+  const isOverlapping = (box: BBox, placed: PositionedWord[]) =>
     placed.some((p) => {
       const pw = getBBox(p.text, p.size, p.x, p.y, p.angle);
       return !(
@@ -160,9 +187,10 @@ const WordCloud: React.FC<WordCloudProps> = ({
 
   return (
     <div
+      ref={containerRef}
       style={{
-        width,
-        height,
+        width: width ?? "100%",
+        height: cloudHeight,
         position: "relative",
         overflow: "hidden",
       }}
@@ -174,7 +202,7 @@ const WordCloud: React.FC<WordCloudProps> = ({
             position: "absolute",
             left: w.x,
             top: w.y,
-            fontSize: w.size,
+            fontSize: Math.min(w.size, 42),
             whiteSpace: "nowrap",
             fontWeight: 600,
             color: w.color,

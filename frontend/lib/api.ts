@@ -173,6 +173,12 @@ export const dataAPI = {
       body: JSON.stringify({ start_date: startDate, end_date: endDate }),
     }),
 
+  exportSHIToSpreadsheet: (kelas: string, startDate: string, endDate: string) =>
+    apiCall("/api/export-shi-spreadsheet", {
+      method: "POST",
+      body: JSON.stringify({ kelas, start_date: startDate, end_date: endDate }),
+    }),
+
   getOverallTrendHarian: () => apiCall("/api/tren/overall/harian"),
   getOverallTrendMingguan: () => apiCall("/api/tren/overall/mingguan"),
 }
@@ -254,6 +260,18 @@ export const adminAPI = {
   deleteAccount: (id: number) =>
     apiCall(`/api/admin/accounts/${id}`, {
       method: "DELETE",
+    }),
+
+  bulkDeleteAccounts: (ids: number[]) =>
+    apiCall("/api/admin/accounts/bulk-delete", {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    }),
+
+  resetAccountPassword: (id: number, password: string) =>
+    apiCall(`/api/admin/accounts/${id}/reset-password`, {
+      method: "POST",
+      body: JSON.stringify({ password }),
     }),
 
   importAccountsCsv: (file: File) => {

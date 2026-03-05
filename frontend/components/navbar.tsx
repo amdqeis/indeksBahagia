@@ -1,12 +1,21 @@
 "use client"
 
-import { useState } from "react"
+import { useState, type ComponentType } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { AnimatePresence, motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Home, BarChart3, LogIn, LogOut, User, Menu, X, ListCheckIcon, ListOrderedIcon, Settings } from "lucide-react"
 import { useAuth } from "@/hooks/use-auth"
+
+type NavItem = {
+  href: string
+  label: string
+  icon: ComponentType<{ className?: string }>
+  requireAuth?: boolean
+  requireRole?: string[] | string
+}
 
 const navItems = [
   { href: "/", label: "Home", icon: Home },
@@ -15,60 +24,53 @@ const navItems = [
   { href: "/survey-control", label: "Survey", icon: ListCheckIcon, requireAuth: true, requireRole: ["admin", "guru"] },
   { href: "/survey", label: "Survey", icon: ListCheckIcon, requireAuth: true, requireRole: ["user"] },
   { href: "/data-siswa", label: "Lihat Data", icon: ListOrderedIcon, requireAuth: true, requireRole: ["admin", "guru"] },
-];
+] as NavItem[]
 
 export default function Navbar() {
-  const { isLoggedIn, role, user, logout } = useAuth();
-  const pathname = usePathname();
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const { isLoggedIn, role, user, logout } = useAuth()
+  const pathname = usePathname()
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
-  const isActive = (href: string) => pathname === href;
+  const isActive = (href: string) => pathname === href
 
-  const hasAccess = (item: any) => {
-    // Jika tidak butuh auth, selalu tampil
-    if (!item.requireAuth) return true;
+  const hasAccess = (item: NavItem) => {
+    if (!item.requireAuth) return true
 
-    // Jika butuh login tapi user belum login
-    if (item.requireAuth && !isLoggedIn) return false;
+    if (item.requireAuth && !isLoggedIn) return false
 
-    // Jika tidak punya batasan role, tampilkan
-    if (!item.requireRole) return true;
+    if (!item.requireRole) return true
 
-    // Jika requireRole adalah string tunggal
     if (typeof item.requireRole === "string") {
-      return role === item.requireRole;
+      return role === item.requireRole
     }
 
-    // Jika requireRole adalah array → cek apakah role user termasuk di dalamnya
     if (Array.isArray(item.requireRole)) {
-      return item.requireRole.includes(role);
+      if (!role) return false
+      return item.requireRole.includes(role)
     }
 
-    return false;
-  };
+    return false
+  }
+
+  const desktopNavItems = navItems.filter(hasAccess)
 
   return (
-    <nav className="bg-white shadow-lg border-b">
+    <motion.nav className="border-b bg-white shadow-lg" initial={false} animate={{ y: 0, opacity: 1 }} transition={{ duration: 0 }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16">
-          {/* Logo */}
           <div className="flex items-center">
             <Link href="/" className="flex-shrink-0 flex items-center">
-              <div className="h-8 w-8 bg-blue-600 rounded-lg flex items-center justify-center">
-                <img src="/app-logo.jpg" alt="Logo APK" />
-              </div>
-              <span className="ml-2 text-xl font-bold text-gray-900">HappinessIndex</span>
+              <motion.div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600" whileHover={{ rotate: 6, scale: 1.05 }}>
+                <img src="/logo.png" alt="Logo APK" />
+              </motion.div>
+              <motion.span className="ml-2 text-xl font-bold text-gray-900">HappinessIndex</motion.span>
             </Link>
           </div>
 
-          {/* Desktop Navigation */}
-          <div className="hidden md:flex items-center space-x-4">
-            {navItems.map((item) => {
-              if (!hasAccess(item)) return null;
-
-              return (
+          <motion.div className="hidden md:flex items-center space-x-4">
+            {desktopNavItems.map((item) => (
+              <motion.div key={item.href} whileHover={{ y: -1 }}>
                 <Link
-                  key={item.href}
                   href={item.href}
                   className={`flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                     isActive(item.href)
@@ -79,10 +81,9 @@ export default function Navbar() {
                   <item.icon className="h-4 w-4 mr-2" />
                   {item.label}
                 </Link>
-              );
-            })}
+              </motion.div>
+            ))}
 
-            {/* User Dropdown */}
             {isLoggedIn ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -106,9 +107,8 @@ export default function Navbar() {
                 </Button>
               </Link>
             )}
-          </div>
+          </motion.div>
 
-          {/* Mobile Menu Button */}
           <div className="md:hidden flex items-center">
             <Button
               variant="ghost"
@@ -120,60 +120,68 @@ export default function Navbar() {
           </div>
         </div>
 
-        {/* Mobile Navigation */}
-        {isMobileMenuOpen && (
-          <div className="md:hidden">
-            <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3 border-t">
-              {navItems.map((item) => {
-                if (!hasAccess(item)) return null;
+        <AnimatePresence>
+          {isMobileMenuOpen ? (
+            <motion.div
+              className="md:hidden"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.2, ease: "easeInOut" }}
+            >
+              <motion.div className="px-2 pt-2 pb-3 space-y-1 sm:px-3 border-t">
+                {navItems.map((item) => {
+                  if (!hasAccess(item)) return null
 
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`flex items-center px-3 py-2 rounded-md text-base font-medium transition-colors ${
-                      isActive(item.href)
-                        ? "bg-blue-100 text-blue-700"
-                        : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-                    }`}
-                    onClick={() => setIsMobileMenuOpen(false)}
-                  >
-                    <item.icon className="h-5 w-5 mr-3" />
-                    {item.label}
-                  </Link>
-                );
-              })}
+                  return (
+                    <motion.div key={item.href}>
+                      <Link
+                        href={item.href}
+                        className={`flex items-center px-3 py-2 rounded-md text-base font-medium transition-colors ${
+                          isActive(item.href)
+                            ? "bg-blue-100 text-blue-700"
+                            : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                        }`}
+                        onClick={() => setIsMobileMenuOpen(false)}
+                      >
+                        <item.icon className="h-5 w-5 mr-3" />
+                        {item.label}
+                      </Link>
+                    </motion.div>
+                  )
+                })}
 
-              {isLoggedIn ? (
-                <div className="border-t pt-4">
-                  <div className="flex items-center px-3 py-2 text-base font-medium text-gray-600">
-                    <User className="h-5 w-5 mr-3" />
-                    {user?.email}
+                {isLoggedIn ? (
+                  <div className="border-t pt-4">
+                    <div className="flex items-center px-3 py-2 text-base font-medium text-gray-600">
+                      <User className="h-5 w-5 mr-3" />
+                      {user?.email}
+                    </div>
+                    <button
+                      onClick={logout}
+                      className="flex items-center w-full px-3 py-2 text-base font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-md"
+                    >
+                      <LogOut className="h-5 w-5 mr-3" />
+                      Logout
+                    </button>
                   </div>
-                  <button
-                    onClick={logout}
-                    className="flex items-center w-full px-3 py-2 text-base font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-md"
-                  >
-                    <LogOut className="h-5 w-5 mr-3" />
-                    Logout
-                  </button>
-                </div>
-              ) : (
-                <div className="border-t pt-4">
-                  <Link
-                    href="/login"
-                    className="flex items-center px-3 py-2 text-base font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-md"
-                    onClick={() => setIsMobileMenuOpen(false)}
-                  >
-                    <LogIn className="h-5 w-5 mr-3" />
-                    Login
-                  </Link>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+                ) : (
+                  <div className="border-t pt-4">
+                    <Link
+                      href="/login"
+                      className="flex items-center px-3 py-2 text-base font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-md"
+                      onClick={() => setIsMobileMenuOpen(false)}
+                    >
+                      <LogIn className="h-5 w-5 mr-3" />
+                      Login
+                    </Link>
+                  </div>
+                )}
+              </motion.div>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
       </div>
-    </nav>
-  );
+    </motion.nav>
+  )
 }

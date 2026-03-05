@@ -6,7 +6,17 @@ from sqlalchemy import func
 from app.extentions import db
 
 def get_system_setting():
-    return SystemSetting.query.first()
+    setting = SystemSetting.query.first()
+    if setting:
+        return setting
+
+    setting = SystemSetting(
+        is_survey_harian_active=True,
+        is_survey_mingguan_active=True
+    )
+    db.session.add(setting)
+    db.session.commit()
+    return setting
 
 @api.route('/submit-form-harian', methods=["POST"])
 def submit_form_harian():
@@ -108,14 +118,7 @@ def submit_form_mingguan():
 
 @api.route('/status-survey', methods=['POST'])
 def status_survey():
-    kelas = session.get('kelas')
     setting = get_system_setting()
-    
-    if not kelas:
-        return jsonify({"error": "Parameter 'kelas' diperlukan"}), 400
-    if not setting:
-        return jsonify({"error": "Pengaturan survey belum diinisialisasi"}), 400
-    
     data = request.get_json()
     
     # Pastikan ada field 'type'
@@ -139,32 +142,46 @@ def status_survey():
     
     pass
 
-# @api.route('/toggle-survey', methods=['POST'])
-# def toggle_survey():
-#     kelas = session.get('kelas')
-#     data = request.get_json()
-#     tipe = data.get('type')
-#     action = data.get('action') 
-    
-#     if tipe == "harian":
-#         change = RecordSiswaHarianPermission.query.filter_by(kelas=kelas).first()
-#         if action == "open":
-#             change.is_active = True
-#         if action == "close":
-#             change.is_active = False
-#         db.session.commit()
-#     if tipe == "mingguan":
-#         change = RecordSiswaMingguanPermission.query.filter_by(kelas=kelas).first()
-#         if action == "open":
-#             change.is_active = True
-#         if action == "close":
-#             change.is_active = False
-#         db.session.commit()
-#     return jsonify({}), 200
+@api.route('/toggle-survey', methods=['POST'])
+def toggle_survey():
+    role = (session.get('role') or '').strip().lower()
+    if role not in ['admin', 'guru']:
+        return jsonify({'message': 'Akses ditolak'}), 403
+
+    data = request.get_json() or {}
+    tipe = (data.get('type') or '').strip().lower()
+    action = (data.get('action') or '').strip().lower()
+
+    if tipe not in ['harian', 'mingguan']:
+        return jsonify({'message': "type tidak valid, gunakan 'harian' atau 'mingguan'"}), 400
+
+    if action not in ['open', 'close']:
+        return jsonify({'message': "action tidak valid, gunakan 'open' atau 'close'"}), 400
+
+    setting = get_system_setting()
+    is_open = action == 'open'
+
+    if tipe == 'harian':
+        setting.is_survey_harian_active = is_open
+    else:
+        setting.is_survey_mingguan_active = is_open
+
+    db.session.commit()
+
+    return jsonify({
+        'message': 'success',
+        'type': tipe,
+        'action': action,
+        'isOpen': is_open
+    }), 200
 
 @api.route('/valid-input/<string:tipe>', methods=['GET', 'POST'])
 def valid_input(tipe):
+    get_system_setting()
     user = User.query.get(session.get('user_id'))
+    if not user:
+        return jsonify({'valid': False, 'message': 'User tidak ditemukan'}), 404
+
     allowed, message = user.can_fill_survey(tipe)
     
     return jsonify({

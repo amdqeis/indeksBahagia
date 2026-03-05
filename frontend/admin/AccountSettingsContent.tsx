@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { motion } from "framer-motion"
 import { CheckCircle2, Upload, ArrowRightLeft, Table2, CircleAlert } from "lucide-react"
 
 type FormState = {
@@ -35,6 +36,9 @@ type PopupState = {
   variant: "success" | "error" | "info"
 }
 
+const CSV_MAX_SIZE_BYTES = 2 * 1024 * 1024
+const EMAIL_REGEX = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/
+
 export default function AccountSettingsContent() {
   const [accounts, setAccounts] = useState<AdminAccount[]>([])
   const [page, setPage] = useState(1)
@@ -46,12 +50,22 @@ export default function AccountSettingsContent() {
   const [isLoading, setIsLoading] = useState(false)
   const [form, setForm] = useState<FormState>(initialForm)
   const [editingId, setEditingId] = useState<number | null>(null)
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [selectedAccountIds, setSelectedAccountIds] = useState<number[]>([])
+  const [isBulkDeleteDialogOpen, setIsBulkDeleteDialogOpen] = useState(false)
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false)
+  const [resetTargetAccount, setResetTargetAccount] = useState<AdminAccount | null>(null)
+  const [resetPasswordValue, setResetPasswordValue] = useState("")
+  const [resetConfirmPasswordValue, setResetConfirmPasswordValue] = useState("")
+  const [isResetDialogOpen, setIsResetDialogOpen] = useState(false)
+  const [isResettingPassword, setIsResettingPassword] = useState(false)
   const [csvFile, setCsvFile] = useState<File | null>(null)
   const [classOptions, setClassOptions] = useState<AdminClassOption[]>([])
   const [sourceClass, setSourceClass] = useState("")
   const [targetClass, setTargetClass] = useState("")
   const [sourceStudents, setSourceStudents] = useState<AdminAccount[]>([])
   const [excludedStudentIds, setExcludedStudentIds] = useState<number[]>([])
+  const [isMoveConfirmOpen, setIsMoveConfirmOpen] = useState(false)
   const [isClassLoading, setIsClassLoading] = useState(false)
   const [isMovingClass, setIsMovingClass] = useState(false)
   const [popup, setPopup] = useState<PopupState>({
@@ -63,6 +77,11 @@ export default function AccountSettingsContent() {
 
   const pageLabel = useMemo(() => `${page} / ${totalPages}`, [page, totalPages])
   const classSummaryLabel = useMemo(() => `${classOptions.length} kelas terdaftar`, [classOptions.length])
+  const selectedCount = useMemo(() => selectedAccountIds.length, [selectedAccountIds])
+  const isAllCurrentPageSelected = useMemo(() => {
+    if (accounts.length === 0) return false
+    return accounts.every((account) => selectedAccountIds.includes(account.id))
+  }, [accounts, selectedAccountIds])
 
   const openPopup = (title: string, message: string, variant: PopupState["variant"]) => {
     setPopup({
@@ -102,6 +121,7 @@ export default function AccountSettingsContent() {
             : []
 
       setAccounts(normalizedAccounts)
+      setSelectedAccountIds((prev) => prev.filter((id) => normalizedAccounts.some((account) => account.id === id)))
       setPage(Number(data?.current_page ?? data?.page ?? targetPage))
       setTotalPages(Math.max(1, Number(data?.pages ?? data?.total_pages ?? 1)))
     } catch (err) {
@@ -161,10 +181,82 @@ export default function AccountSettingsContent() {
     )
   }
 
+  const toggleAccountSelection = (accountId: number) => {
+    setSelectedAccountIds((prev) =>
+      prev.includes(accountId) ? prev.filter((id) => id !== accountId) : [...prev, accountId],
+    )
+  }
+
+  const toggleSelectAllCurrentPage = () => {
+    const currentPageIds = accounts.map((account) => account.id)
+    if (currentPageIds.length === 0) return
+
+    setSelectedAccountIds((prev) => {
+      const allSelected = currentPageIds.every((id) => prev.includes(id))
+      if (allSelected) {
+        return prev.filter((id) => !currentPageIds.includes(id))
+      }
+
+      const merged = new Set(prev)
+      currentPageIds.forEach((id) => merged.add(id))
+      return Array.from(merged)
+    })
+  }
+
+  const onDownloadTemplateCsv = () => {
+    const csvTemplate = [
+      "fullname,email,role,password,kode,kelas",
+      "Budi Santoso,budi.santoso@sekolah.id,user,Password123!,NIS001,10A",
+      "Siti Rahma,siti.rahma@sekolah.id,guru,Password123!,NIP101,10A",
+      "Admin Sekolah,admin@sekolah.id,admin,Password123!,,",
+    ].join("\n")
+
+    const blob = new Blob([`\uFEFF${csvTemplate}`], { type: "text/csv;charset=utf-8;" })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement("a")
+
+    link.href = url
+    link.download = "template-upload-akun.csv"
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+  }
+
+  const validatePasswordInput = (password: string) => {
+    if (password.length < 8) return "Password minimal 8 karakter."
+    if (!/[A-Z]/.test(password)) return "Password harus mengandung minimal 1 huruf besar."
+    if (!/[a-z]/.test(password)) return "Password harus mengandung minimal 1 huruf kecil."
+    if (!/[0-9]/.test(password)) return "Password harus mengandung minimal 1 angka."
+    return null
+  }
+
+  const openMoveConfirmation = () => {
+    if (!sourceClass || !targetClass) {
+      setError("Kelas asal dan kelas tujuan wajib diisi")
+      openPopup("Data Belum Lengkap", "Kelas asal dan kelas tujuan wajib diisi.", "error")
+      return
+    }
+    if (sourceClass === targetClass) {
+      setError("Kelas asal dan kelas tujuan tidak boleh sama")
+      openPopup("Kelas Tidak Valid", "Kelas asal dan kelas tujuan tidak boleh sama.", "error")
+      return
+    }
+
+    setError("")
+    setNotice("")
+    setIsMoveConfirmOpen(true)
+  }
+
   const onMoveClass = async () => {
     if (!sourceClass || !targetClass) {
       setError("Kelas asal dan kelas tujuan wajib diisi")
       openPopup("Data Belum Lengkap", "Kelas asal dan kelas tujuan wajib diisi.", "error")
+      return
+    }
+    if (sourceClass === targetClass) {
+      setError("Kelas asal dan kelas tujuan tidak boleh sama")
+      openPopup("Kelas Tidak Valid", "Kelas asal dan kelas tujuan tidak boleh sama.", "error")
       return
     }
 
@@ -192,6 +284,7 @@ export default function AccountSettingsContent() {
         `Dipindahkan ${data.moved_count} siswa, dikecualikan ${data.excluded_count} siswa.`,
         "success",
       )
+      setIsMoveConfirmOpen(false)
       setSourceClass("")
       setTargetClass("")
       setSourceStudents([])
@@ -210,6 +303,11 @@ export default function AccountSettingsContent() {
     setEditingId(null)
   }
 
+  const closeEditDialog = () => {
+    setIsEditDialogOpen(false)
+    resetForm()
+  }
+
   const handleSubmit = async () => {
     try {
       setError("")
@@ -221,6 +319,25 @@ export default function AccountSettingsContent() {
       if (!form.fullname || !form.email || !form.role) {
         setError("Nama lengkap, email, dan role wajib diisi")
         return
+      }
+      if (!EMAIL_REGEX.test(form.email)) {
+        setError("Format email tidak valid")
+        return
+      }
+      if ((form.role === "user" || form.role === "guru") && !form.kelas) {
+        setError("Kelas wajib diisi untuk role user/guru")
+        return
+      }
+      if ((form.role === "admin" || form.role === "guest") && form.kelas) {
+        setError("Kelas hanya boleh diisi untuk role user/guru")
+        return
+      }
+      if (form.password) {
+        const passwordValidationError = validatePasswordInput(form.password)
+        if (passwordValidationError) {
+          setError(passwordValidationError)
+          return
+        }
       }
 
       const payload: {
@@ -250,7 +367,7 @@ export default function AccountSettingsContent() {
       }
 
       setNotice(data.message || "Akun berhasil disimpan")
-      resetForm()
+      closeEditDialog()
       await loadAccounts(1)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Terjadi kesalahan")
@@ -267,9 +384,12 @@ export default function AccountSettingsContent() {
       kode: account.kode ?? "",
       kelas: account.kelas ?? "",
     })
+    setIsEditDialogOpen(true)
   }
 
   const onDelete = async (id: number) => {
+    if (!window.confirm("Yakin ingin menghapus akun ini?")) return
+
     try {
       setError("")
       setNotice("")
@@ -280,9 +400,101 @@ export default function AccountSettingsContent() {
       }
 
       setNotice(data.message || "Akun berhasil dihapus")
+      setSelectedAccountIds((prev) => prev.filter((selectedId) => selectedId !== id))
       await loadAccounts()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Terjadi kesalahan")
+    }
+  }
+
+  const openResetDialog = (account: AdminAccount) => {
+    setResetTargetAccount(account)
+    setResetPasswordValue("")
+    setResetConfirmPasswordValue("")
+    setIsResetDialogOpen(true)
+  }
+
+  const onResetPassword = async () => {
+    if (!resetTargetAccount) return
+    if (!resetPasswordValue) {
+      setError("Password baru wajib diisi")
+      return
+    }
+
+    const passwordValidationError = validatePasswordInput(resetPasswordValue)
+    if (passwordValidationError) {
+      setError(passwordValidationError)
+      return
+    }
+
+    if (resetPasswordValue !== resetConfirmPasswordValue) {
+      setError("Konfirmasi password tidak cocok")
+      return
+    }
+
+    try {
+      setError("")
+      setNotice("")
+      setIsResettingPassword(true)
+
+      const response = await adminAPI.resetAccountPassword(resetTargetAccount.id, resetPasswordValue)
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || "Gagal reset password")
+      }
+
+      setNotice(data.message || "Password berhasil direset")
+      openPopup(
+        "Reset Password Berhasil",
+        `Akun: ${resetTargetAccount.fullname}\nPassword baru berhasil disimpan.`,
+        "success",
+      )
+      setIsResetDialogOpen(false)
+      setResetTargetAccount(null)
+      setResetPasswordValue("")
+      setResetConfirmPasswordValue("")
+      await loadAccounts(page)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Terjadi kesalahan")
+    } finally {
+      setIsResettingPassword(false)
+    }
+  }
+
+  const openBulkDeleteDialog = () => {
+    if (selectedAccountIds.length === 0) {
+      setError("Pilih minimal satu akun untuk dihapus")
+      openPopup("Belum Ada Pilihan", "Pilih minimal satu akun terlebih dahulu.", "error")
+      return
+    }
+    setIsBulkDeleteDialogOpen(true)
+  }
+
+  const onBulkDelete = async () => {
+    if (selectedAccountIds.length === 0) return
+
+    try {
+      setError("")
+      setNotice("")
+      setIsBulkDeleting(true)
+
+      const response = await adminAPI.bulkDeleteAccounts(selectedAccountIds)
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || "Gagal menghapus akun terpilih")
+      }
+
+      setNotice(data.message || "Akun terpilih berhasil dihapus")
+      openPopup("Hapus Batch Berhasil", `${data.deleted_count ?? selectedAccountIds.length} akun berhasil dihapus.`, "success")
+      setIsBulkDeleteDialogOpen(false)
+      setSelectedAccountIds([])
+      await loadAccounts(1)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Terjadi kesalahan")
+    } finally {
+      setIsBulkDeleting(false)
     }
   }
 
@@ -290,6 +502,16 @@ export default function AccountSettingsContent() {
     if (!csvFile) {
       setError("Pilih file CSV terlebih dahulu")
       openPopup("File Belum Dipilih", "Pilih file CSV terlebih dahulu sebelum import.", "error")
+      return
+    }
+    if (!csvFile.name.toLowerCase().endsWith(".csv")) {
+      setError("Format file harus .csv")
+      openPopup("Format File Tidak Valid", "Unggah file dengan ekstensi .csv", "error")
+      return
+    }
+    if (csvFile.size > CSV_MAX_SIZE_BYTES) {
+      setError("Ukuran file maksimal 2 MB")
+      openPopup("Ukuran File Terlalu Besar", "Ukuran file CSV maksimal 2 MB.", "error")
       return
     }
 
@@ -300,12 +522,30 @@ export default function AccountSettingsContent() {
       const data = await response.json()
 
       if (!response.ok) {
-        openPopup("Import CSV Gagal", data.message || "Import CSV gagal", "error")
+        const backendErrors = Array.isArray(data?.errors)
+          ? data.errors
+              .slice(0, 5)
+              .map((item: { row?: number; message?: string }) => `Baris ${item.row ?? "-"}: ${item.message ?? "Tidak valid"}`)
+          : []
+        const detailMessage = backendErrors.length > 0 ? `${data.message || "Import CSV gagal"}\n${backendErrors.join("\n")}` : data.message || "Import CSV gagal"
+        openPopup("Import CSV Gagal", detailMessage, "error")
         throw new Error(data.message || "Import CSV gagal")
       }
 
       setNotice(`Import selesai: ${data.imported} berhasil, ${data.failed} gagal.`)
-      openPopup("Import CSV Berhasil", `Berhasil ${data.imported}, gagal ${data.failed}.`, "success")
+      if (Array.isArray(data?.errors) && data.errors.length > 0) {
+        const previewErrors = data.errors
+          .slice(0, 5)
+          .map((item: { row?: number; message?: string }) => `Baris ${item.row ?? "-"}: ${item.message ?? "Tidak valid"}`)
+          .join("\n")
+        openPopup(
+          "Import CSV Selesai dengan Validasi",
+          `Berhasil ${data.imported}, gagal ${data.failed}.\n${previewErrors}`,
+          "info",
+        )
+      } else {
+        openPopup("Import CSV Berhasil", `Berhasil ${data.imported}, gagal ${data.failed}.`, "success")
+      }
       setCsvFile(null)
       await loadAccounts(1)
     } catch (err) {
@@ -349,9 +589,15 @@ export default function AccountSettingsContent() {
               <Button onClick={onImportCsv} className="bg-emerald-600 text-white hover:bg-emerald-700">
                 Import
               </Button>
+              <Button variant="outline" onClick={onDownloadTemplateCsv}>
+                Download Template CSV
+              </Button>
             </CardContent>
             <CardContent className="pt-0">
-              <p className="text-xs text-slate-500">Tambah akun hanya dari CSV. Format kolom: fullname,email,role,password,kode,kelas</p>
+              <p className="text-xs text-slate-500">
+                Tambah akun hanya dari CSV. Format kolom: fullname,email,role,password,kode,kelas. Password minimal 8 karakter
+                (huruf besar, huruf kecil, angka). Role user/guru wajib isi kelas.
+              </p>
             </CardContent>
           </Card>
 
@@ -364,7 +610,7 @@ export default function AccountSettingsContent() {
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-xs text-slate-500">
-                Pindahkan seluruh siswa dari kelas asal ke kelas tujuan. Anda bisa mengecualikan siswa tertentu.
+                Pindahkan seluruh siswa dari kelas asal ke kelas tujuan. Pengecualian siswa diatur pada popup konfirmasi.
               </p>
 
               <div className="grid gap-3 md:grid-cols-2">
@@ -408,126 +654,31 @@ export default function AccountSettingsContent() {
                   </select>
                 </div>
               </div>
-            </CardContent>
-          </Card>
-        </div>
 
-        <Card className="border-cyan-200 shadow-sm">
-          <CardHeader>
-            <CardTitle>Kecualikan Siswa (Opsional)</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {sourceClass ? (
-              <div className="max-h-56 overflow-y-auto rounded-xl border border-cyan-100 bg-cyan-50/30 p-3">
-                {sourceStudents.length === 0 ? (
-                  <p className="text-sm text-slate-500">Tidak ada siswa pada kelas ini.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {sourceStudents.map((student) => (
-                      <label key={student.id} className="flex items-center justify-between gap-2 rounded-md bg-white px-3 py-2 text-sm">
-                        <span>
-                          {student.fullname} - {student.email}
-                        </span>
-                        <input
-                          type="checkbox"
-                          checked={excludedStudentIds.includes(student.id)}
-                          onChange={() => toggleExcludedStudent(student.id)}
-                          disabled={isMovingClass}
-                        />
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <p className="text-sm text-slate-500">Pilih kelas asal untuk menampilkan daftar siswa.</p>
-            )}
-
-            <div className="flex gap-2">
-              <Button
-                onClick={onMoveClass}
-                disabled={isMovingClass || isClassLoading || !sourceClass || !targetClass}
-                className="bg-cyan-600 text-white hover:bg-cyan-700"
-              >
-                {isMovingClass ? "Memproses..." : "Pindahkan Kelas"}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setSourceClass("")
-                  setTargetClass("")
-                  setSourceStudents([])
-                  setExcludedStudentIds([])
-                }}
-                disabled={isMovingClass}
-              >
-                Reset
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {editingId ? (
-          <Card className="border-amber-200 shadow-sm">
-            <CardHeader>
-              <CardTitle>Edit Akun</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="fullname">Nama Lengkap</Label>
-                <Input id="fullname" value={form.fullname} onChange={(e) => setForm({ ...form, fullname: e.target.value })} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input id="email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="role">Role</Label>
-                <select
-                  id="role"
-                  className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
-                  value={form.role}
-                  onChange={(e) => setForm({ ...form, role: e.target.value as FormState["role"] })}
+              <div className="flex gap-2">
+                <Button
+                  onClick={openMoveConfirmation}
+                  disabled={isMovingClass || isClassLoading || !sourceClass || !targetClass}
+                  className="bg-cyan-600 text-white hover:bg-cyan-700"
                 >
-                  <option value="admin">admin</option>
-                  <option value="guru">guru</option>
-                  <option value="user">user</option>
-                  <option value="guest">guest</option>
-                </select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="password">Password (opsional)</Label>
-                <Input id="password" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="kode">Kode</Label>
-                <Input id="kode" value={form.kode} onChange={(e) => setForm({ ...form, kode: e.target.value })} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="kelas">Kelas</Label>
-                <select
-                  id="kelas"
-                  className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
-                  value={form.kelas}
-                  onChange={(e) => setForm({ ...form, kelas: e.target.value })}
+                  Lanjut Konfirmasi
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSourceClass("")
+                    setTargetClass("")
+                    setSourceStudents([])
+                    setExcludedStudentIds([])
+                  }}
+                  disabled={isMovingClass}
                 >
-                  <option value="">Tanpa kelas</option>
-                  {classOptions.map((option) => (
-                    <option key={`edit-${option.kelas}`} value={option.kelas}>
-                      {option.kelas}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="col-span-full flex gap-2">
-                <Button onClick={handleSubmit}>Update</Button>
-                <Button variant="outline" onClick={resetForm}>
-                  Batal Edit
+                  Reset
                 </Button>
               </div>
             </CardContent>
           </Card>
-        ) : null}
+        </div>
 
         <Card className="border-slate-200 shadow-sm">
           <CardHeader>
@@ -558,13 +709,29 @@ export default function AccountSettingsContent() {
               <Button variant="outline" onClick={() => loadAccounts(1)} disabled={isLoading}>
                 Cari
               </Button>
+              <Button
+                variant="destructive"
+                onClick={openBulkDeleteDialog}
+                disabled={selectedCount === 0 || isLoading || isBulkDeleting}
+              >
+                Hapus Terpilih ({selectedCount})
+              </Button>
             </div>
 
             <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
               <table className="w-full border-collapse text-sm">
                 <thead>
                   <tr className="border-b bg-slate-100 text-left">
-                    <th className="px-3 py-2">Nama</th>
+                    <th className="px-3 py-2">
+                      <input
+                        type="checkbox"
+                        checked={isAllCurrentPageSelected}
+                        onChange={toggleSelectAllCurrentPage}
+                        disabled={accounts.length === 0 || isLoading}
+                        aria-label="Pilih semua akun pada halaman ini"
+                      />
+                    </th>
+                    <th className="px-3 py-2">Nama Akun</th>
                     <th className="px-3 py-2">Email</th>
                     <th className="px-3 py-2">Role</th>
                     <th className="px-3 py-2">Kode</th>
@@ -575,14 +742,36 @@ export default function AccountSettingsContent() {
                 <tbody>
                   {accounts.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-4 text-center text-slate-500" colSpan={6}>
+                      <td className="px-3 py-4 text-center text-slate-500" colSpan={7}>
                         Tidak ada data
                       </td>
                     </tr>
                   ) : (
                     accounts.map((account) => (
                       <tr key={account.id} className="border-b">
-                        <td className="px-3 py-2">{account.fullname}</td>
+                        <td className="px-3 py-2 align-top">
+                          <input
+                            type="checkbox"
+                            checked={selectedAccountIds.includes(account.id)}
+                            onChange={() => toggleAccountSelection(account.id)}
+                            aria-label={`Pilih akun ${account.fullname}`}
+                            disabled={isLoading || isBulkDeleting}
+                          />
+                        </td>
+                        <td className="px-3 py-2 align-top">
+                          <div className="flex flex-col gap-2">
+                            <span className="font-medium text-slate-900">{account.fullname}</span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="w-fit border-amber-300 text-amber-700 hover:bg-amber-50"
+                              onClick={() => openResetDialog(account)}
+                              disabled={isResettingPassword || isBulkDeleting}
+                            >
+                              Reset Password
+                            </Button>
+                          </div>
+                        </td>
                         <td className="px-3 py-2">{account.email}</td>
                         <td className="px-3 py-2">{account.role}</td>
                         <td className="px-3 py-2">{account.kode ?? "-"}</td>
@@ -617,6 +806,234 @@ export default function AccountSettingsContent() {
         </Card>
       </section>
 
+      <Dialog
+        open={isEditDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeEditDialog()
+            return
+          }
+          setIsEditDialogOpen(true)
+        }}
+      >
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Akun</DialogTitle>
+            <DialogDescription>Perbarui data akun pengguna, lalu simpan perubahan.</DialogDescription>
+          </DialogHeader>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.97, y: 14 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            transition={{ duration: 0.24, ease: "easeOut" }}
+            className="grid gap-3 md:grid-cols-2"
+          >
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.04, duration: 0.2 }} className="space-y-2">
+              <Label htmlFor="edit-fullname">Nama Lengkap</Label>
+              <Input id="edit-fullname" value={form.fullname} onChange={(e) => setForm({ ...form, fullname: e.target.value })} />
+            </motion.div>
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08, duration: 0.2 }} className="space-y-2">
+              <Label htmlFor="edit-email">Email</Label>
+              <Input id="edit-email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+            </motion.div>
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12, duration: 0.2 }} className="space-y-2">
+              <Label htmlFor="edit-role">Role</Label>
+              <select
+                id="edit-role"
+                className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+                value={form.role}
+                onChange={(e) => setForm({ ...form, role: e.target.value as FormState["role"] })}
+              >
+                <option value="admin">admin</option>
+                <option value="guru">guru</option>
+                <option value="user">user</option>
+                <option value="guest">guest</option>
+              </select>
+            </motion.div>
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.16, duration: 0.2 }} className="space-y-2">
+              <Label htmlFor="edit-password">Password (opsional)</Label>
+              <Input id="edit-password" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+            </motion.div>
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2, duration: 0.2 }} className="space-y-2">
+              <Label htmlFor="edit-kode">Kode</Label>
+              <Input id="edit-kode" value={form.kode} onChange={(e) => setForm({ ...form, kode: e.target.value })} />
+            </motion.div>
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.24, duration: 0.2 }} className="space-y-2">
+              <Label htmlFor="edit-kelas">Kelas</Label>
+              <select
+                id="edit-kelas"
+                className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+                value={form.kelas}
+                onChange={(e) => setForm({ ...form, kelas: e.target.value })}
+              >
+                <option value="">Tanpa kelas</option>
+                {classOptions.map((option) => (
+                  <option key={`edit-${option.kelas}`} value={option.kelas}>
+                    {option.kelas}
+                  </option>
+                ))}
+              </select>
+            </motion.div>
+          </motion.div>
+          <DialogFooter>
+            <Button onClick={handleSubmit} disabled={!editingId}>
+              Update
+            </Button>
+            <Button variant="outline" onClick={closeEditDialog}>
+              Batal Edit
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isMoveConfirmOpen} onOpenChange={setIsMoveConfirmOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Konfirmasi Pindah Kelas Massal</DialogTitle>
+            <DialogDescription>
+              Pilih siswa yang ingin dikecualikan sebelum proses pindah kelas dijalankan.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="rounded-lg border border-cyan-100 bg-cyan-50/30 p-4 text-sm">
+            <p>
+              <span className="font-semibold text-slate-800">Kelas asal:</span> {sourceClass || "-"}
+            </p>
+            <p>
+              <span className="font-semibold text-slate-800">Kelas tujuan:</span> {targetClass || "-"}
+            </p>
+            <p>
+              <span className="font-semibold text-slate-800">Total siswa kelas asal:</span> {sourceStudents.length}
+            </p>
+            <p>
+              <span className="font-semibold text-slate-800">Dikecualikan:</span> {excludedStudentIds.length}
+            </p>
+          </div>
+
+          {isClassLoading ? (
+            <p className="text-sm text-slate-500">Memuat daftar siswa...</p>
+          ) : !sourceClass ? (
+            <p className="text-sm text-slate-500">Pilih kelas asal untuk melihat daftar siswa.</p>
+          ) : sourceStudents.length === 0 ? (
+            <p className="text-sm text-slate-500">Tidak ada siswa pada kelas asal ini.</p>
+          ) : (
+            <div className="max-h-64 overflow-y-auto rounded-xl border border-cyan-100 bg-white p-3">
+              <div className="space-y-2">
+                {sourceStudents.map((student) => (
+                  <label key={student.id} className="flex items-center justify-between gap-2 rounded-md border border-slate-100 bg-slate-50 px-3 py-2 text-sm">
+                    <span>
+                      {student.fullname} - {student.email}
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={excludedStudentIds.includes(student.id)}
+                      onChange={() => toggleExcludedStudent(student.id)}
+                      disabled={isMovingClass}
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsMoveConfirmOpen(false)} disabled={isMovingClass}>
+              Batal
+            </Button>
+            <Button
+              onClick={onMoveClass}
+              disabled={isMovingClass || isClassLoading || !sourceClass || !targetClass}
+              className="bg-cyan-600 text-white hover:bg-cyan-700"
+            >
+              {isMovingClass ? "Memproses..." : "Konfirmasi Pindah Kelas"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={isResetDialogOpen}
+        onOpenChange={(open) => {
+          setIsResetDialogOpen(open)
+          if (!open) {
+            setResetTargetAccount(null)
+            setResetPasswordValue("")
+            setResetConfirmPasswordValue("")
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Konfirmasi Reset Password</DialogTitle>
+            <DialogDescription className="whitespace-pre-line">
+              {resetTargetAccount
+                ? `Akun: ${resetTargetAccount.fullname}\nEmail: ${resetTargetAccount.email}\n\nLanjut reset password akun ini?`
+                : "Pilih akun yang akan direset password-nya."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label htmlFor="reset-password">Password Baru</Label>
+              <Input
+                id="reset-password"
+                type="password"
+                value={resetPasswordValue}
+                onChange={(e) => setResetPasswordValue(e.target.value)}
+                placeholder="Masukkan password baru"
+                disabled={isResettingPassword}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="reset-confirm-password">Konfirmasi Password Baru</Label>
+              <Input
+                id="reset-confirm-password"
+                type="password"
+                value={resetConfirmPasswordValue}
+                onChange={(e) => setResetConfirmPasswordValue(e.target.value)}
+                placeholder="Ulangi password baru"
+                disabled={isResettingPassword}
+              />
+            </div>
+            <p className="text-xs text-slate-500">Password minimal 8 karakter, berisi huruf besar, huruf kecil, dan angka.</p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsResetDialogOpen(false)
+                setResetTargetAccount(null)
+                setResetPasswordValue("")
+                setResetConfirmPasswordValue("")
+              }}
+              disabled={isResettingPassword}
+            >
+              Batal
+            </Button>
+            <Button variant="destructive" onClick={onResetPassword} disabled={!resetTargetAccount || isResettingPassword}>
+              {isResettingPassword ? "Memproses..." : "Ya, Reset Password"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isBulkDeleteDialogOpen} onOpenChange={setIsBulkDeleteDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Konfirmasi Hapus Batch</DialogTitle>
+            <DialogDescription className="whitespace-pre-line">
+              {`Anda akan menghapus ${selectedCount} akun terpilih.\nTindakan ini tidak dapat dibatalkan.`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsBulkDeleteDialogOpen(false)} disabled={isBulkDeleting}>
+              Batal
+            </Button>
+            <Button variant="destructive" onClick={onBulkDelete} disabled={isBulkDeleting || selectedCount === 0}>
+              {isBulkDeleting ? "Menghapus..." : "Ya, Hapus Terpilih"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={popup.open} onOpenChange={(open) => setPopup((prev) => ({ ...prev, open }))}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -630,7 +1047,7 @@ export default function AccountSettingsContent() {
               )}
               {popup.title}
             </DialogTitle>
-            <DialogDescription>{popup.message}</DialogDescription>
+            <DialogDescription className="whitespace-pre-line">{popup.message}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button onClick={() => setPopup((prev) => ({ ...prev, open: false }))}>Tutup</Button>
