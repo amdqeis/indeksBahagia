@@ -1,10 +1,12 @@
 FIXED_CLASS_LIST = [
-    "10-1",
-    "10-2",
-    "11-1",
-    "11-2",
-    "12-1",
-    "12-2",
+    "7 Zubair",
+    "7 Aisyah",
+    "8 Abu Bakar",
+    "8 Utsman",
+    "8 Fatimah",
+    "8 Hajar",
+    "9 Umar",
+    "9 Khadijah",
 ]
 
 FIXED_CLASS_SET = set(FIXED_CLASS_LIST)
@@ -22,4 +24,3 @@ def is_valid_class_name(value):
     if normalized is None:
         return False
     return normalized in FIXED_CLASS_SET
-

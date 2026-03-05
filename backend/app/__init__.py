@@ -22,7 +22,7 @@ def create_app():
     @app.cli.command('init-db')
     def init_db():
         """Initialize the database."""
-        from app.models import SystemSetting, SchoolClass
+        from app.models import SystemSetting, SchoolClass, User
         from app.constants import FIXED_CLASS_LIST
 
         existing_classes = {row.name for row in SchoolClass.query.all()}
@@ -36,6 +36,19 @@ def create_app():
                 is_survey_mingguan_active=True
                 )
             db.session.add(default_setting)
+
+        admin_user = User.query.filter_by(email="admin").first()
+        if not admin_user:
+            admin_user = User(
+                fullname="Administrator",
+                email="admin",
+                password_hash=bcrypt.generate_password_hash("admin123").decode("utf-8"),
+                role="admin",
+                kode="admin",
+                kelas=None,
+            )
+            db.session.add(admin_user)
+
         db.session.commit()
         
         print("Database initialized.")
