@@ -31,6 +31,14 @@ def _is_valid_fixed_class(class_name):
     return class_name in set(_get_fixed_classes())
 
 
+def _split_class_assignments(kelas):
+    if kelas is None:
+        return []
+    if not isinstance(kelas, str):
+        return []
+    return [chunk.strip() for chunk in kelas.split(",") if chunk and chunk.strip()]
+
+
 def _get_admin_user():
     user_id = session.get("user_id")
     role = session.get("role")
@@ -115,8 +123,22 @@ def _validate_account_fields(fullname, email, role, kode, kelas, enforce_role_cl
         if role in {"admin", "guest"} and kelas is not None:
             errors.append("kelas hanya boleh diisi untuk role user/guru")
 
-    if kelas is not None and (not is_valid_class_name(kelas) or not _is_valid_fixed_class(kelas)):
-        errors.append("Kelas tidak valid")
+    if kelas is not None and role == "guru":
+        assigned_classes = _split_class_assignments(kelas)
+        if not assigned_classes:
+            errors.append("kelas guru tidak valid")
+        else:
+            invalid_classes = [
+                class_name
+                for class_name in assigned_classes
+                if not is_valid_class_name(class_name) or not _is_valid_fixed_class(class_name)
+            ]
+            if invalid_classes:
+                errors.append(f"Kelas guru tidak valid: {', '.join(invalid_classes)}")
+
+    if kelas is not None and role in {"user", "guest", "admin"}:
+        if not is_valid_class_name(kelas) or not _is_valid_fixed_class(kelas):
+            errors.append("Kelas tidak valid")
 
     return errors
 

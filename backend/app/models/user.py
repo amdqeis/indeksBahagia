@@ -1,5 +1,6 @@
 from app.extentions import db
 from datetime import datetime, date, timedelta
+import re
 from sqlalchemy import func
 from .record import RecordSiswaHarian, RecordSiswaMingguan
 from .system_setting import SystemSetting
@@ -31,6 +32,42 @@ class User(db.Model):
         back_populates='target',
         cascade='all, delete-orphan'
     )
+
+    @property
+    def username(self):
+        """
+        Compatibility username field for API payloads.
+        Uses email as canonical login identifier in this codebase.
+        """
+        return self.email
+
+    @property
+    def normalized_role(self):
+        role = (self.role or "").strip().lower()
+        if role == "superadmin":
+            return "admin"
+        if role == "user":
+            return "siswa"
+        return role
+
+    @property
+    def assigned_classes(self):
+        """
+        Returns normalized class list for RBAC.
+        Supports single class ("8 Fatimah") and CSV class scope ("8 Fatimah,8 Hajar").
+        """
+        raw = (self.kelas or "").strip()
+        if not raw:
+            return []
+        return [item.strip() for item in re.split(r"\s*,\s*", raw) if item and item.strip()]
+
+    def to_identity_payload(self):
+        return {
+            "id": self.id,
+            "username": self.username,
+            "role": self.normalized_role,
+            "kelas": self.kelas,
+        }
     
     def has_filled_survey(self, tipe: str = "harian") -> bool:
         """Cek apakah user sudah mengisi survey berdasarkan tipe ('harian' / 'mingguan')."""

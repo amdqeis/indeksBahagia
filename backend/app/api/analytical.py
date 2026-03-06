@@ -1,90 +1,115 @@
-from flask import request, jsonify, session
+from flask import request, jsonify, session, g
 from . import api
 from ..models import User, RecordSiswaHarian, RecordSiswaMingguan
 from datetime import date, datetime, timedelta
 from sqlalchemy import func, or_, cast, Date, distinct
 import math
-import json
-import os
 from app.extentions import db
 from ..constants import is_valid_class_name, normalize_class_name
-
-GOOGLE_SHEETS_DEFAULT_SPREADSHEET_ID = "1yV8VJPtHpnXa-shfzgandugA0CRmaXinQMld2XC8rVQ"
-GOOGLE_SHEETS_EXPORT_HEADERS = [
-    "Waktu Export",
-    "Periode Mulai",
-    "Periode Akhir",
-    "Scope Kelas",
-    "Kelas Siswa",
-    "Nama Siswa",
-    "Email Siswa",
-    "Tanggal Survey",
-    "Skor SHI",
-    "Diekspor Oleh",
-]
+from app.rbac import ALL_CLASSES_SCOPE, require_class_access
+from ..services.google_sheets_export import GoogleSheetsExportService
 
 
-def _build_google_sheets_service():
+def _parse_export_date_range(start_date_raw, end_date_raw):
+    if not start_date_raw or not end_date_raw:
+        return None, None, (jsonify({"message": "start_date dan end_date wajib diisi"}), 400)
+
     try:
-        from google.oauth2.service_account import Credentials
-        from googleapiclient.discovery import build
-    except ImportError as exc:
-        raise ImportError(
-            "Library Google Sheets belum terpasang. Install: google-api-python-client dan google-auth."
-        ) from exc
+        start_date = datetime.strptime(start_date_raw, "%Y-%m-%d").date()
+        end_date = datetime.strptime(end_date_raw, "%Y-%m-%d").date()
+    except ValueError:
+        return None, None, (jsonify({"message": "invalid date format, use YYYY-MM-DD"}), 400)
 
-    service_account_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
-    service_account_file = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE")
-    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+    if start_date > end_date:
+        return None, None, (jsonify({"message": "start_date must be before or equal to end_date"}), 400)
 
-    if service_account_json:
-        credentials = Credentials.from_service_account_info(
-            json.loads(service_account_json),
-            scopes=scopes,
+    return start_date, end_date, None
+
+
+def _build_export_rows(kelas_scope, start_date, end_date, exported_by):
+    kelas_filter = True if kelas_scope == ALL_CLASSES_SCOPE else (User.kelas == kelas_scope)
+    normalized_student_roles = [func.lower(func.trim(User.role)) == "user", func.lower(func.trim(User.role)) == "siswa"]
+
+    record_rows = (
+        db.session.query(
+            User.kelas.label("kelas"),
+            User.fullname.label("fullname"),
+            User.email.label("email"),
+            func.date(RecordSiswaHarian.date).label("record_date"),
+            RecordSiswaHarian.skor.label("skor"),
         )
-    elif service_account_file:
-        credentials = Credentials.from_service_account_file(service_account_file, scopes=scopes)
-    else:
-        raise ValueError(
-            "Credential Google Sheets belum tersedia. "
-            "Set GOOGLE_SERVICE_ACCOUNT_JSON atau GOOGLE_SERVICE_ACCOUNT_FILE."
+        .join(User, User.id == RecordSiswaHarian.user_id)
+        .filter(
+            or_(*normalized_student_roles),
+            kelas_filter,
+            func.date(RecordSiswaHarian.date).between(start_date, end_date),
         )
+        .order_by(User.kelas.asc(), User.fullname.asc(), RecordSiswaHarian.date.asc())
+        .all()
+    )
 
-    return build("sheets", "v4", credentials=credentials, cache_discovery=False)
+    if not record_rows:
+        return None
+
+    exported_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    rows = [
+        [
+            exported_at,
+            start_date.strftime("%Y-%m-%d"),
+            end_date.strftime("%Y-%m-%d"),
+            kelas_scope,
+            row.kelas or "-",
+            row.fullname,
+            row.email or "-",
+            row.record_date.strftime("%Y-%m-%d"),
+            round(float(row.skor), 2),
+            exported_by,
+        ]
+        for row in record_rows
+    ]
+    return rows
 
 
-def _append_rows_to_google_sheet(rows):
-    spreadsheet_id = os.getenv("GOOGLE_SHEET_ID_SHI_EXPORT", GOOGLE_SHEETS_DEFAULT_SPREADSHEET_ID)
-    sheet_name = os.getenv("GOOGLE_SHEET_TAB_SHI_EXPORT")
-    service = _build_google_sheets_service()
-    spreadsheets = service.spreadsheets()
+def _execute_shi_export(kelas_scope, start_date_raw, end_date_raw, exported_by, actor_role):
+    start_date, end_date, error_response = _parse_export_date_range(start_date_raw, end_date_raw)
+    if error_response:
+        return error_response
 
-    if not sheet_name:
-        metadata = spreadsheets.get(spreadsheetId=spreadsheet_id).execute()
-        sheets = metadata.get("sheets", [])
-        if not sheets:
-            raise ValueError("Spreadsheet tujuan tidak memiliki sheet aktif.")
-        sheet_name = sheets[0]["properties"]["title"]
+    rows = _build_export_rows(
+        kelas_scope=kelas_scope,
+        start_date=start_date,
+        end_date=end_date,
+        exported_by=exported_by,
+    )
+    if not rows:
+        return jsonify({"message": "Tidak ada data SHI pada rentang tanggal yang dipilih"}), 404
 
-    header_range = f"{sheet_name}!A1:J1"
-    header_data = spreadsheets.values().get(spreadsheetId=spreadsheet_id, range=header_range).execute()
-    if not header_data.get("values"):
-        spreadsheets.values().update(
-            spreadsheetId=spreadsheet_id,
-            range=header_range,
-            valueInputOption="RAW",
-            body={"values": [GOOGLE_SHEETS_EXPORT_HEADERS]},
-        ).execute()
+    try:
+        export_result = GoogleSheetsExportService().append_export_rows(
+            kelas_scope=kelas_scope,
+            rows=rows,
+            actor_role=actor_role,
+        )
+    except (ValueError, ImportError) as exc:
+        return jsonify({"message": str(exc)}), 500
+    except Exception as exc:
+        return jsonify({"message": f"Gagal export ke spreadsheet: {str(exc)}"}), 500
 
-    append_result = spreadsheets.values().append(
-        spreadsheetId=spreadsheet_id,
-        range=f"{sheet_name}!A1",
-        valueInputOption="USER_ENTERED",
-        insertDataOption="INSERT_ROWS",
-        body={"values": rows},
-    ).execute()
-
-    return append_result.get("updates", {}).get("updatedRows", len(rows))
+    return (
+        jsonify(
+            {
+                "message": "Export data SHI berhasil",
+                "exported_rows": export_result["updated_rows"],
+                "scope_kelas": kelas_scope,
+                "start_date": start_date.strftime("%Y-%m-%d"),
+                "end_date": end_date.strftime("%Y-%m-%d"),
+                "spreadsheet_id": export_result["spreadsheet_id"],
+                "worksheet": export_result["worksheet"],
+                "export_role": actor_role,
+            }
+        ),
+        200,
+    )
 
 
 @api.route('/word-cloud', methods=["POST"])
@@ -621,103 +646,34 @@ def submission_percentage():
     }), 200
 
 
-@api.route('/export-shi-spreadsheet', methods=["POST"])
-def export_shi_spreadsheet():
-    if "user_id" not in session:
-        return jsonify({"message": "Authentication required"}), 401
+@api.route('/export/<kelas>', methods=["GET"])
+@require_class_access(class_arg="kelas", allow_admin_all_scope=False)
+def export_shi_by_class(kelas):
+    start_date_raw = request.args.get("start_date")
+    end_date_raw = request.args.get("end_date")
+    exported_by = g.current_user.username or f"user-{g.current_user.id}"
 
-    role = (session.get("role") or "").strip().lower()
-    if role not in ["admin", "guru"]:
-        return jsonify({"message": "Akses ditolak untuk role Anda"}), 403
-
-    payload = request.get_json(silent=True) or {}
-    kelas_request = (payload.get("kelas") or "").strip()
-    start_date_raw = payload.get("start_date")
-    end_date_raw = payload.get("end_date")
-
-    if not start_date_raw or not end_date_raw:
-        return jsonify({"message": "start_date dan end_date wajib diisi"}), 400
-
-    try:
-        start_date = datetime.strptime(start_date_raw, "%Y-%m-%d").date()
-        end_date = datetime.strptime(end_date_raw, "%Y-%m-%d").date()
-    except ValueError:
-        return jsonify({"message": "invalid date format, use YYYY-MM-DD"}), 400
-
-    if start_date > end_date:
-        return jsonify({"message": "start_date must be before or equal to end_date"}), 400
-
-    if role == "guru":
-        kelas_guru = normalize_class_name(session.get("kelas") or "")
-        if not kelas_guru:
-            return jsonify({"message": "Akun guru belum terhubung ke kelas"}), 400
-
-        if kelas_request and kelas_request not in [kelas_guru, "Semua Kelas"]:
-            return jsonify({"message": "Guru hanya dapat export data untuk kelasnya sendiri"}), 403
-        kelas_scope = kelas_guru
-    else:
-        if not kelas_request or kelas_request == "Semua Kelas":
-            kelas_scope = "Semua Kelas"
-        else:
-            kelas_scope = normalize_class_name(kelas_request)
-            if not kelas_scope or not is_valid_class_name(kelas_scope):
-                return jsonify({"message": "kelas tidak valid"}), 400
-
-    kelas_filter = True if kelas_scope == "Semua Kelas" else (User.kelas == kelas_scope)
-    record_rows = (
-        db.session.query(
-            User.kelas.label("kelas"),
-            User.fullname.label("fullname"),
-            User.email.label("email"),
-            func.date(RecordSiswaHarian.date).label("record_date"),
-            RecordSiswaHarian.skor.label("skor"),
-        )
-        .join(User, User.id == RecordSiswaHarian.user_id)
-        .filter(
-            User.role == "user",
-            kelas_filter,
-            func.date(RecordSiswaHarian.date).between(start_date, end_date),
-        )
-        .order_by(User.kelas.asc(), User.fullname.asc(), RecordSiswaHarian.date.asc())
-        .all()
+    return _execute_shi_export(
+        kelas_scope=g.requested_kelas,
+        start_date_raw=start_date_raw,
+        end_date_raw=end_date_raw,
+        exported_by=exported_by,
+        actor_role=g.current_role,
     )
 
-    if not record_rows:
-        return jsonify({"message": "Tidak ada data SHI pada rentang tanggal yang dipilih"}), 404
 
-    exported_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    exported_by = session.get("email") or f"user-{session.get('user_id')}"
+@api.route('/export-shi-spreadsheet', methods=["POST"])
+@require_class_access(class_arg="kelas", allow_admin_all_scope=True)
+def export_shi_spreadsheet():
+    payload = request.get_json(silent=True) or {}
+    start_date_raw = payload.get("start_date")
+    end_date_raw = payload.get("end_date")
+    exported_by = g.current_user.username or f"user-{g.current_user.id}"
 
-    rows = [
-        [
-            exported_at,
-            start_date.strftime("%Y-%m-%d"),
-            end_date.strftime("%Y-%m-%d"),
-            kelas_scope,
-            row.kelas or "-",
-            row.fullname,
-            row.email or "-",
-            row.record_date.strftime("%Y-%m-%d"),
-            round(float(row.skor), 2),
-            exported_by,
-        ]
-        for row in record_rows
-    ]
-
-    try:
-        updated_rows = _append_rows_to_google_sheet(rows)
-    except (ValueError, ImportError) as exc:
-        return jsonify({"message": str(exc)}), 500
-    except Exception as exc:
-        return jsonify({"message": f"Gagal export ke spreadsheet: {str(exc)}"}), 500
-
-    return jsonify(
-        {
-            "message": "Export data SHI berhasil",
-            "exported_rows": updated_rows,
-            "scope_kelas": kelas_scope,
-            "start_date": start_date.strftime("%Y-%m-%d"),
-            "end_date": end_date.strftime("%Y-%m-%d"),
-            "spreadsheet_id": os.getenv("GOOGLE_SHEET_ID_SHI_EXPORT", GOOGLE_SHEETS_DEFAULT_SPREADSHEET_ID),
-        }
-    ), 200
+    return _execute_shi_export(
+        kelas_scope=g.requested_kelas,
+        start_date_raw=start_date_raw,
+        end_date_raw=end_date_raw,
+        exported_by=exported_by,
+        actor_role=g.current_role,
+    )

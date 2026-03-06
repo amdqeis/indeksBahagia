@@ -1,115 +1,60 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Users, Heart, Home, TrendingUp } from "lucide-react"
-import { Line, ResponsiveContainer } from "recharts"
-import HappinessGauge from "@/components/gauge-chart"
 import Link from "next/link"
-import InfoCard from "@/components/info-card"
-import LineChartSekolah from "@/components/ui/line-chart"
-import BarChartSHI from "@/components/ui/barchart"
-import LineChartHome from "@/components/ui/line-chart-home"
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL
+import Image from "next/image"
+import { Button } from "@/components/ui/button"
 import { useAuth } from "@/hooks/use-auth"
 
 export default function HomePage() {
-  const { user } = useAuth();
-
-  useEffect(() => {
-    console.log("API_BASE_URL:", API_BASE_URL);
-    fetch(`${API_BASE_URL}/note`)
-      .then(res => res.json())
-      .then(data => console.log("✅ API response:", data))
-      .catch(err => console.error("❌ API error:", err));
-  }, []);
-
+  const { user } = useAuth()
 
   return (
-    <div className="relative h-screen overflow-hidden bg-gradient-to-br from-blue-50 via-indigo-100 to-purple-100 flex items-center">
-      
-      {/* Decorative Blobs */}
-      <div className="absolute -top-32 -left-32 w-96 h-96 bg-indigo-300/40 rounded-full blur-3xl" />
-      <div className="absolute top-1/3 -right-32 w-96 h-96 bg-purple-300/40 rounded-full blur-3xl" />
-      <div className="absolute bottom-[-6rem] left-1/3 w-96 h-96 bg-blue-300/40 rounded-full blur-3xl" />
+    <section className="relative min-h-[calc(100vh-4rem)] overflow-hidden">
+      <Image
+        src="/Gedung SMP.png"
+        alt="Gedung SMP"
+        fill
+        priority
+        className="object-cover object-center"
+      />
 
-      {/* Content */}
-      <div className="relative z-10 max-w-7xl mx-auto px-6 w-full">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
+      <div className="absolute inset-0 bg-gradient-to-r from-black/55 via-black/20 to-black/50" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/45 via-transparent to-black/30" />
 
-          {/* Left Content */}
-          <div>
-            <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold text-gray-900 leading-tight">
-              Survey <span className="text-indigo-600">Ar Rafi</span>
+      <div className="relative z-10 mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-7xl flex-col justify-end px-6 pb-8 pt-10 sm:px-8 sm:pb-10 md:px-10 md:pb-12 lg:px-12 lg:pb-14">
+        <div className="flex w-full items-end justify-between gap-6">
+          <div className="max-w-3xl">
+            <h1 className="font-serif text-5xl font-semibold leading-[0.9] text-white drop-shadow-xl sm:text-6xl md:text-7xl lg:text-8xl">
+              Indeks
+              <br />
+              Bahagia
             </h1>
 
-            <p className="mt-5 text-gray-600 text-lg max-w-xl">
-              Platform digital untuk pemantauan dan analisis  
-              <span className="font-semibold text-gray-800">
-                {" "}Indeks Kebahagiaan Sekolah
-              </span>{" "}
-              secara real-time, akurat, dan transparan.
+            <p className="mt-4 max-w-xl text-sm text-white/90 sm:text-base md:text-lg">
+              Platform pemantauan kebahagiaan sekolah dengan insight cepat, akurat, dan mudah dipahami.
             </p>
 
-            <div className="mt-8 flex flex-col sm:flex-row gap-4">
-              {user?.role === "admin" || user?.role === "guru" && (
+            <div className="mt-6 flex flex-wrap gap-3">
+              {(user?.role === "admin" || user?.role === "guru") && (
                 <Link href="/dashboard">
-                  <Button size="lg" className="px-8">
-                    Lihat Analisis
-                  </Button>
+                  <Button className="bg-orange-500 text-white hover:bg-orange-600">Lihat Analisis</Button>
                 </Link>
               )}
 
               <Link href={user?.role === "user" ? "/survey" : "/survey-control"}>
-                <Button
-                  variant="outline"
-                  size="lg"
-                  className="px-8 bg-white/70 backdrop-blur"
-                >
+                <Button variant="secondary" className="bg-white/90 text-slate-900 hover:bg-white">
                   Buka Survey
                 </Button>
               </Link>
             </div>
           </div>
 
-          {/* Right Glass Card */}
-          <div className="bg-white/60 backdrop-blur-xl rounded-2xl shadow-xl p-8 grid grid-cols-2 gap-6 c-border">
-            
-            <StatCard
-              title="Pengguna Aktif"
-              value="1.248"
-              desc="Siswa & Guru"
-            />
-            <StatCard
-              title="Indeks"
-              value="82.4%"
-              desc="Tingkat Kebahagiaan"
-            />
-            <StatCard
-              title="Survey Aktif"
-              value="4"
-              desc="Bulan ini"
-            />
-            <StatCard
-              title="Update"
-              value="Real-time"
-              desc="Live Dashboard"
-            />
-
+          <div className="hidden max-w-xs text-right text-white/90 md:block">
+            <p className="text-lg font-medium">School happiness direction</p>
+            <p className="text-xs text-white/75">6 March 2026</p>
           </div>
         </div>
       </div>
-    </div>
-  )
-}
-
-function StatCard({ title, value, desc }: { title: string; value: string; desc: string }) {
-  return (
-    <div className="bg-white/50 backdrop-blur-sm rounded-xl p-4 border border-white/20">
-      <h3 className="text-sm font-medium text-gray-600">{title}</h3>
-      <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
-      <p className="text-xs text-gray-500 mt-1">{desc}</p>
-    </div>
+    </section>
   )
 }

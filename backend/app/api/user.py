@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 import secrets
 import os
 from app.extentions import db
-from ..constants import FIXED_CLASS_LIST
+from ..constants import FIXED_CLASS_LIST, is_valid_class_name
 
 
 bcrypt = Bcrypt()
@@ -141,8 +141,11 @@ def check_auth():
                 'authenticated': True,
                 'user': {
                     'id': user.id,
+                    'username': user.username,
                     'email': user.email,
-                    'role': user.role
+                    'role': user.role,
+                    'rbac_role': user.normalized_role,
+                    'kelas': user.kelas,
                 }
             })
     
@@ -167,8 +170,11 @@ def login():
             'message': 'Login successful',
             'user': {
                 'id': user.id,
+                'username': user.username,
                 'email': user.email,
-                'role': user.role
+                'role': user.role,
+                'rbac_role': user.normalized_role,
+                'kelas': user.kelas,
             }
         })
     
@@ -181,17 +187,21 @@ def logout():
 
 @api.route('/access-classes', methods=['GET'])
 def access_classes():
-    role = session.get('role')
-    kelas = session.get('kelas')
-    
-    if not role:
-        return jsonify({'message': 'error'}), 400
-    if role in ['admin', 'superadmin']:
+    user_id = session.get('user_id')
+    if not user_id:
+        return jsonify({'message': 'Authentication required'}), 401
+
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({'message': 'User not found'}), 401
+
+    role = user.normalized_role
+
+    if role == 'admin':
         access = [row.name for row in SchoolClass.query.order_by(SchoolClass.name).all()]
         if not access:
             access = FIXED_CLASS_LIST
 
-        
         kelasList = [
             {
                 "label": k,
@@ -201,16 +211,30 @@ def access_classes():
         ]
 
         kelasList.insert(0, {"label": "Semua Kelas", "value": "Semua Kelas"})
-        
+
         return jsonify(kelasList), 200
-    
-    if not kelas:
-        return jsonify({'message': 'error'}), 400
-    
-    return jsonify([{
-        'label': kelas,
-        'value': kelas
-    }]), 200
+
+    if role == 'guru':
+        access = [
+            kelas
+            for kelas in user.assigned_classes
+            if is_valid_class_name(kelas) or SchoolClass.query.filter_by(name=kelas).first()
+        ]
+    elif role == 'siswa':
+        access = [user.kelas] if user.kelas and (is_valid_class_name(user.kelas) or SchoolClass.query.filter_by(name=user.kelas).first()) else []
+    else:
+        return jsonify({'message': 'Akses ditolak untuk role Anda'}), 403
+
+    if not access:
+        return jsonify({'message': 'Akun belum terhubung ke kelas'}), 400
+
+    return jsonify([
+        {
+            'label': kelas,
+            'value': kelas
+        }
+        for kelas in access
+    ]), 200
 
 @api.route('/forgot-password', methods=['POST'])
 def forgot_password():

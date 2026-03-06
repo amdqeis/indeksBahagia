@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { dataAPI } from "@/lib/api"
 import RouteGuard from "@/components/route-guard"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -9,7 +9,7 @@ import BarChartSHI from "@/components/ui/barchart"
 import Top5TrenMenurun from "./tren-menurun"
 import AlertSummary from "./alert-summary"
 import HeatmapKebahagiaan from "./heatmap"
-import { Download, ExternalLink, Loader2 } from "lucide-react"
+import { Download, ExternalLink, Loader2, ChevronLeft, ChevronRight } from "lucide-react"
 
 interface ClassOption {
   label: string
@@ -21,15 +21,82 @@ interface AccessClassResponse {
   value: string
 }
 
+type PeriodMode = "range" | "month"
+
+const formatDateLocal = (d: Date) => {
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+const formatMonthLocal = (d: Date) => {
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, "0")
+  return `${year}-${month}`
+}
+
+const resolveMonthRange = (monthValue: string) => {
+  const [yearRaw, monthRaw] = monthValue.split("-")
+  const year = Number(yearRaw)
+  const month = Number(monthRaw)
+
+  if (!year || !month || month < 1 || month > 12) {
+    return null
+  }
+
+  const start = new Date(year, month - 1, 1)
+  const end = new Date(year, month, 0)
+  return {
+    startDate: formatDateLocal(start),
+    endDate: formatDateLocal(end),
+  }
+}
+
+const shiftMonthValue = (monthValue: string, delta: number) => {
+  const [yearRaw, monthRaw] = monthValue.split("-")
+  const year = Number(yearRaw)
+  const month = Number(monthRaw)
+  if (!year || !month || month < 1 || month > 12) {
+    const fallback = new Date()
+    fallback.setMonth(fallback.getMonth() + delta)
+    return formatMonthLocal(fallback)
+  }
+
+  const current = new Date(year, month - 1, 1)
+  current.setMonth(current.getMonth() + delta)
+  return formatMonthLocal(current)
+}
+
+const getQuickRange = (days: number) => {
+  const end = new Date()
+  const start = new Date()
+  start.setDate(end.getDate() - (days - 1))
+  return {
+    startDate: formatDateLocal(start),
+    endDate: formatDateLocal(end),
+  }
+}
+
 function DashboardContent() {
   const spreadsheetUrl = "https://docs.google.com/spreadsheets/d/1yV8VJPtHpnXa-shfzgandugA0CRmaXinQMld2XC8rVQ/edit?gid=0#gid=0"
   const [classOptions, setClassOptions] = useState<ClassOption[]>([])
   const [selectedClass, setSelectedClass] = useState("")
+  const [periodMode, setPeriodMode] = useState<PeriodMode>("range")
+  const [selectedMonth, setSelectedMonth] = useState("")
   const [selectedStartDate, setSelectedStartDate] = useState("")
   const [selectedEndDate, setSelectedEndDate] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
   const [exportStatus, setExportStatus] = useState<{ type: "success" | "error"; message: string } | null>(null)
+  const quickRanges = useMemo(
+    () => [
+      { label: "7 Hari", value: 7 },
+      { label: "14 Hari", value: 14 },
+      { label: "30 Hari", value: 30 },
+    ],
+    [],
+  )
 
   const fetchClassOptions = async () => {
     try {
@@ -56,10 +123,15 @@ function DashboardContent() {
     const today = new Date()
     const start = new Date(today)
     start.setDate(today.getDate() - 6)
-    setSelectedStartDate(start.toISOString().split("T")[0])
-    setSelectedEndDate(today.toISOString().split("T")[0])
+    setSelectedStartDate(formatDateLocal(start))
+    setSelectedEndDate(formatDateLocal(today))
+    setSelectedMonth(formatMonthLocal(today))
     fetchClassOptions()
   }, [])
+
+  const resolvedMonthRange = useMemo(() => resolveMonthRange(selectedMonth), [selectedMonth])
+  const effectiveStartDate = periodMode === "month" ? (resolvedMonthRange?.startDate || "") : selectedStartDate
+  const effectiveEndDate = periodMode === "month" ? (resolvedMonthRange?.endDate || "") : selectedEndDate
 
   const onChangeStartDate = (value: string) => {
     setExportStatus(null)
@@ -77,9 +149,17 @@ function DashboardContent() {
     }
   }
 
+  const applyQuickRange = (days: number) => {
+    const range = getQuickRange(days)
+    setPeriodMode("range")
+    setSelectedStartDate(range.startDate)
+    setSelectedEndDate(range.endDate)
+    setExportStatus(null)
+  }
+
   const handleExport = async () => {
-    if (!selectedClass || !selectedStartDate || !selectedEndDate) {
-      setExportStatus({ type: "error", message: "Lengkapi kelas dan rentang tanggal sebelum export." })
+    if (!selectedClass || !effectiveStartDate || !effectiveEndDate) {
+      setExportStatus({ type: "error", message: "Lengkapi kelas dan periode sebelum export." })
       return
     }
 
@@ -87,15 +167,16 @@ function DashboardContent() {
     setExportStatus(null)
 
     try {
-      const response = await dataAPI.exportSHIToSpreadsheet(selectedClass, selectedStartDate, selectedEndDate)
+      const response = await dataAPI.exportSHIToSpreadsheet(selectedClass, effectiveStartDate, effectiveEndDate)
       const json = await response.json()
       if (!response.ok) {
         throw new Error(json.message || "Export gagal")
       }
 
+      const worksheetInfo = json.worksheet ? ` ke worksheet ${json.worksheet}` : ""
       setExportStatus({
         type: "success",
-        message: `Export berhasil (${json.exported_rows} baris data SHI).`,
+        message: `Export berhasil (${json.exported_rows} baris data SHI${worksheetInfo}).`,
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : "Terjadi kesalahan saat export."
@@ -122,7 +203,9 @@ function DashboardContent() {
         <div className="rounded-2xl border border-slate-200 bg-white/80 backdrop-blur-sm shadow-sm p-5 md:p-6">
           <div className="flex flex-col gap-1 mb-4">
             <h1 className="text-xl md:text-2xl font-semibold text-slate-900">Dashboard Analitik</h1>
-            <p className="text-sm text-slate-500">Pilih kelas dan rentang tanggal untuk menampilkan data di antara kedua tanggal.</p>
+            <p className="text-sm text-slate-500">
+              Pilih kelas dan periode analitik berdasarkan rentang tanggal atau bulan tertentu.
+            </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
@@ -149,27 +232,131 @@ function DashboardContent() {
             </div>
 
             <div className="flex flex-col gap-2">
-              <label className="font-medium text-slate-700">Tanggal Mulai</label>
-              <input
-                type="date"
-                value={selectedStartDate}
-                max={selectedEndDate || undefined}
-                onChange={(e) => onChangeStartDate(e.target.value)}
-                className="h-11 border border-slate-300 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-slate-400"
-              />
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <label className="font-medium text-slate-700">Tanggal Akhir</label>
-              <input
-                type="date"
-                value={selectedEndDate}
-                min={selectedStartDate || undefined}
-                onChange={(e) => onChangeEndDate(e.target.value)}
-                className="h-11 border border-slate-300 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-slate-400"
-              />
+              <label className="font-medium text-slate-700">Mode Periode</label>
+              <div className="grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPeriodMode("range")
+                    setExportStatus(null)
+                  }}
+                  className={`h-9 rounded-lg text-sm font-medium transition ${
+                    periodMode === "range"
+                      ? "bg-white text-slate-900 shadow-sm border border-slate-200"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  Rentang
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPeriodMode("month")
+                    setExportStatus(null)
+                  }}
+                  className={`h-9 rounded-lg text-sm font-medium transition ${
+                    periodMode === "month"
+                      ? "bg-white text-slate-900 shadow-sm border border-slate-200"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  Per Bulan
+                </button>
+              </div>
             </div>
           </div>
+
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+            {periodMode === "range" ? (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-medium text-slate-600">Periode Cepat:</span>
+                  {quickRanges.map((item) => (
+                    <button
+                      key={item.value}
+                      type="button"
+                      onClick={() => applyQuickRange(item.value)}
+                      className="h-8 rounded-full border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-100 transition"
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-2">
+                    <label className="text-sm font-medium text-slate-700">Tanggal Mulai</label>
+                    <input
+                      type="date"
+                      value={selectedStartDate}
+                      max={selectedEndDate || undefined}
+                      onChange={(e) => onChangeStartDate(e.target.value)}
+                      className="h-11 border border-slate-300 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-slate-400 bg-white"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <label className="text-sm font-medium text-slate-700">Tanggal Akhir</label>
+                    <input
+                      type="date"
+                      value={selectedEndDate}
+                      min={selectedStartDate || undefined}
+                      onChange={(e) => onChangeEndDate(e.target.value)}
+                      className="h-11 border border-slate-300 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-slate-400 bg-white"
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setSelectedMonth((prev) => shiftMonthValue(prev, -1))
+                      setExportStatus(null)
+                    }}
+                    className="h-9"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Bulan Sebelumnya
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setSelectedMonth((prev) => shiftMonthValue(prev, 1))
+                      setExportStatus(null)
+                    }}
+                    className="h-9"
+                  >
+                    Bulan Berikutnya
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                <div className="max-w-xs">
+                  <label className="text-sm font-medium text-slate-700">Pilih Bulan</label>
+                  <input
+                    type="month"
+                    value={selectedMonth}
+                    onChange={(e) => {
+                      setSelectedMonth(e.target.value)
+                      setExportStatus(null)
+                    }}
+                    className="mt-2 h-11 w-full border border-slate-300 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-slate-400 bg-white"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <p className="mt-3 inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600">
+            Periode aktif: {effectiveStartDate || "-"} s.d. {effectiveEndDate || "-"}
+          </p>
 
           <div className="mt-5 rounded-xl border border-sky-100 bg-gradient-to-r from-sky-50 via-cyan-50 to-white p-4">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -192,7 +379,7 @@ function DashboardContent() {
               <Button
                 type="button"
                 onClick={handleExport}
-                disabled={isExporting || !selectedClass || !selectedStartDate || !selectedEndDate}
+                disabled={isExporting || !selectedClass || !effectiveStartDate || !effectiveEndDate}
                 className="h-11 rounded-xl px-5 bg-gradient-to-r from-cyan-600 via-sky-600 to-blue-600 text-white shadow-sm hover:from-cyan-500 hover:via-sky-500 hover:to-blue-500"
               >
                 {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
@@ -218,16 +405,16 @@ function DashboardContent() {
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6 mt-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="col-span-1">
-            <BarChartSHI startDate={selectedStartDate} endDate={selectedEndDate} />
+            <BarChartSHI startDate={effectiveStartDate} endDate={effectiveEndDate} />
           </div>
 
           <div className="col-span-1">
-            <AlertSummary kelas={selectedClass} startDate={selectedStartDate} endDate={selectedEndDate} />
-            <Top5TrenMenurun kelas={selectedClass} startDate={selectedStartDate} endDate={selectedEndDate} />
+            <AlertSummary kelas={selectedClass} startDate={effectiveStartDate} endDate={effectiveEndDate} />
+            <Top5TrenMenurun kelas={selectedClass} startDate={effectiveStartDate} endDate={effectiveEndDate} />
           </div>
         </div>
 
-        <HeatmapKebahagiaan kelas={selectedClass} startDate={selectedStartDate} endDate={selectedEndDate} />
+        <HeatmapKebahagiaan kelas={selectedClass} startDate={effectiveStartDate} endDate={effectiveEndDate} />
       </div>
     </div>
   )
