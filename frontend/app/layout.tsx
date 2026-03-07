@@ -12,9 +12,9 @@ export const metadata: Metadata = {
   title: "Survey Arrafi",
   description: "Platform digital untuk pemantauan tingkat kebahagiaan di sekolah Arrafi",
   icons:{
-    icon: "/logo.png",
-    shortcut: "/logo.png",
-    apple: "/logo.png",
+    icon: "/logo_arrafi.png",
+    shortcut: "/logo_arrafi.png",
+    apple: "/logo_arrafi.png",
   }
 }
 

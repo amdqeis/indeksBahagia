@@ -62,12 +62,12 @@ function LoginPageContent() {
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1">
           <div className="flex items-center justify-center mb-4">
-            <div className="h-12 w-12 bg-blue-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-lg">SI</span>
+            <div className="h-12 w-12 rounded-lg flex items-center justify-center">
+              <img src="logo_arrafi.png" alt="logo_arrafi" />
             </div>
           </div>
           <CardTitle className="text-2xl font-bold text-center">Masuk ke Sistem</CardTitle>
-          <CardDescription className="text-center">Masukkan username dan password Anda</CardDescription>
+          <CardDescription className="text-center">Masukkan email dan password Anda</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -78,14 +78,14 @@ function LoginPageContent() {
             )}
 
             <div className="space-y-2">
-              <Label htmlFor="username">Username/Gmail</Label>
+              <Label htmlFor="username">Gmail</Label>
               <div className="relative">
                 <User className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                 <Input
                   id="username"
                   name="username"
                   type="text"
-                  placeholder="Masukkan username/gmail"
+                  placeholder="Masukkan gmail"
                   value={formData.username}
                   onChange={handleChange}
                   className="pl-10"
@@ -128,11 +128,11 @@ function LoginPageContent() {
               {isLoading ? "Memproses..." : "Masuk"}
             </Button>
 
-            <div className="text-center">
+            {/* <div className="text-center">
               <Link href="/forgot-password" className="text-sm text-blue-600 hover:text-blue-500">
                 Lupa password?
               </Link>
-            </div>
+            </div> */}
           </form>
         </CardContent>
       </Card>

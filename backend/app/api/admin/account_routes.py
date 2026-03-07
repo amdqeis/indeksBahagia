@@ -1,182 +1,31 @@
 import csv
 import io
-import re
-from datetime import datetime, timedelta
+from datetime import datetime
 
-from flask import jsonify, request, session
+from flask import jsonify, request
 from sqlalchemy import asc, desc, func, or_
 
 from app.extentions import bcrypt, db
-from . import api
-from ..models import User, SchoolClass
-from ..constants import FIXED_CLASS_LIST, is_valid_class_name, normalize_class_name
-
-ALLOWED_ROLES = {"admin", "guru", "user", "guest"}
-CSV_REQUIRED_COLUMNS = {"fullname", "email", "role"}
-CSV_ALLOWED_COLUMNS = {"fullname", "email", "role", "password", "kode", "kelas"}
-MAX_IMPORT_ROWS = 1000
-MAX_CSV_SIZE_BYTES = 2 * 1024 * 1024
-EMAIL_REGEX = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
-KODE_REGEX = re.compile(r"^[A-Za-z0-9._-]+$")
-PASSWORD_MIN_LENGTH = 8
-PASSWORD_MAX_LENGTH = 72
-
-
-def _get_fixed_classes():
-    classes = [row.name for row in SchoolClass.query.order_by(SchoolClass.name).all()]
-    return classes or FIXED_CLASS_LIST
-
-
-def _is_valid_fixed_class(class_name):
-    return class_name in set(_get_fixed_classes())
-
-
-def _split_class_assignments(kelas):
-    if kelas is None:
-        return []
-    if not isinstance(kelas, str):
-        return []
-    return [chunk.strip() for chunk in kelas.split(",") if chunk and chunk.strip()]
-
-
-def _get_admin_user():
-    user_id = session.get("user_id")
-    role = session.get("role")
-
-    if not user_id:
-        return False, jsonify({"message": "Autentikasi diperlukan"}), 401
-
-    if role != "admin":
-        return False, jsonify({"message": "Akses hanya untuk admin"}), 403
-
-    user = User.query.get(user_id)
-    if not user or user.role != "admin":
-        return False, jsonify({"message": "User admin tidak valid"}), 403
-
-    return True, user, 200
-
-
-def _serialize_user(user: User):
-    normalized_role = (user.role or "").strip().lower()
-    return {
-        "id": user.id,
-        "fullname": user.fullname,
-        "email": user.email,
-        "role": normalized_role or "guest",
-        "kode": user.kode,
-        "kelas": user.kelas,
-        "created_at": user.created_at.isoformat() if user.created_at else None,
-        "updated_at": user.updated_at.isoformat() if user.updated_at else None,
-    }
-
-
-def _validate_password_strength(password):
-    if not isinstance(password, str):
-        return "Password harus berupa teks"
-
-    if len(password) < PASSWORD_MIN_LENGTH:
-        return f"Password minimal {PASSWORD_MIN_LENGTH} karakter"
-
-    if len(password) > PASSWORD_MAX_LENGTH:
-        return f"Password maksimal {PASSWORD_MAX_LENGTH} karakter"
-
-    if not re.search(r"[A-Z]", password):
-        return "Password harus mengandung minimal 1 huruf besar"
-
-    if not re.search(r"[a-z]", password):
-        return "Password harus mengandung minimal 1 huruf kecil"
-
-    if not re.search(r"[0-9]", password):
-        return "Password harus mengandung minimal 1 angka"
-
-    return None
-
-
-def _validate_account_fields(fullname, email, role, kode, kelas, enforce_role_class_consistency=True):
-    errors = []
-
-    if not fullname:
-        errors.append("fullname wajib diisi")
-    elif len(fullname) > 100:
-        errors.append("fullname maksimal 100 karakter")
-
-    if not email:
-        errors.append("email wajib diisi")
-    elif len(email) > 255:
-        errors.append("email maksimal 255 karakter")
-    elif not EMAIL_REGEX.match(email):
-        errors.append("Format email tidak valid")
-
-    if role not in ALLOWED_ROLES:
-        errors.append("Role tidak valid")
-
-    if kode:
-        if len(kode) > 50:
-            errors.append("kode maksimal 50 karakter")
-        elif not KODE_REGEX.match(kode):
-            errors.append("kode hanya boleh huruf, angka, titik, strip, atau underscore")
-
-    if enforce_role_class_consistency:
-        if role in {"user", "guru"} and not kelas:
-            errors.append("kelas wajib diisi untuk role user/guru")
-
-        if role in {"admin", "guest"} and kelas is not None:
-            errors.append("kelas hanya boleh diisi untuk role user/guru")
-
-    if kelas is not None and role == "guru":
-        assigned_classes = _split_class_assignments(kelas)
-        if not assigned_classes:
-            errors.append("kelas guru tidak valid")
-        else:
-            invalid_classes = [
-                class_name
-                for class_name in assigned_classes
-                if not is_valid_class_name(class_name) or not _is_valid_fixed_class(class_name)
-            ]
-            if invalid_classes:
-                errors.append(f"Kelas guru tidak valid: {', '.join(invalid_classes)}")
-
-    if kelas is not None and role in {"user", "guest", "admin"}:
-        if not is_valid_class_name(kelas) or not _is_valid_fixed_class(kelas):
-            errors.append("Kelas tidak valid")
-
-    return errors
-
-
-@api.route("/admin/dashboard", methods=["GET"])
-def admin_dashboard_summary():
-    is_allowed, _, status = _get_admin_user()
-    if not is_allowed:
-        return _, status
-
-    now = datetime.now()
-    seven_days_ago = now - timedelta(days=7)
-
-    total_accounts = db.session.query(func.count(User.id)).scalar() or 0
-    total_admin = db.session.query(func.count(User.id)).filter(User.role == "admin").scalar() or 0
-    total_guru = db.session.query(func.count(User.id)).filter(User.role == "guru").scalar() or 0
-    total_siswa = db.session.query(func.count(User.id)).filter(User.role == "user").scalar() or 0
-
-    new_last_7_days = (
-        db.session.query(func.count(User.id)).filter(User.created_at >= seven_days_ago).scalar() or 0
-    )
-
-    return jsonify(
-        {
-            "total_accounts": total_accounts,
-            "total_admin": total_admin,
-            "total_guru": total_guru,
-            "total_siswa": total_siswa,
-            "new_last_7_days": new_last_7_days,
-        }
-    )
+from .. import api
+from ...constants import normalize_class_name
+from ...models import User
+from .core import (
+    CSV_ALLOWED_COLUMNS,
+    CSV_REQUIRED_COLUMNS,
+    MAX_CSV_SIZE_BYTES,
+    MAX_IMPORT_ROWS,
+    get_admin_user,
+    serialize_user,
+    validate_account_fields,
+    validate_password_strength,
+)
 
 
 @api.route("/admin/accounts", methods=["GET"])
 def get_admin_accounts():
-    is_allowed, _, status = _get_admin_user()
+    is_allowed, payload, status = get_admin_user()
     if not is_allowed:
-        return _, status
+        return payload, status
 
     page = max(1, request.args.get("page", 1, type=int) or 1)
     per_page = max(1, min(100, request.args.get("per_page", 10, type=int) or 10))
@@ -216,7 +65,7 @@ def get_admin_accounts():
 
     return jsonify(
         {
-            "data": [_serialize_user(user) for user in pagination.items],
+            "data": [serialize_user(user) for user in pagination.items],
             "total": pagination.total,
             "pages": pagination.pages,
             "current_page": page,
@@ -224,135 +73,11 @@ def get_admin_accounts():
     )
 
 
-@api.route("/admin/classes", methods=["GET"])
-def get_admin_classes():
-    is_allowed, _, status = _get_admin_user()
-    if not is_allowed:
-        return _, status
-
-    rows = (
-        db.session.query(SchoolClass.name.label("kelas"), func.count(User.id).label("total_siswa"))
-        .outerjoin(User, (User.kelas == SchoolClass.name) & (func.lower(func.trim(User.role)) == "user"))
-        .group_by(SchoolClass.name)
-        .order_by(asc(SchoolClass.name))
-        .all()
-    )
-
-    if not rows:
-        return jsonify({"data": [{"kelas": class_name, "total_siswa": 0} for class_name in _get_fixed_classes()]})
-
-    return jsonify(
-        {
-            "data": [
-                {
-                    "kelas": row.kelas,
-                    "total_siswa": int(row.total_siswa or 0),
-                }
-                for row in rows
-            ]
-        }
-    )
-
-
-@api.route("/admin/classes/students", methods=["GET"])
-def get_admin_students_by_class():
-    is_allowed, _, status = _get_admin_user()
-    if not is_allowed:
-        return _, status
-
-    source_class = normalize_class_name(request.args.get("source_class", "", type=str))
-    if not source_class:
-        return jsonify({"message": "source_class wajib diisi"}), 400
-    if not is_valid_class_name(source_class) or not _is_valid_fixed_class(source_class):
-        return jsonify({"message": "source_class tidak valid"}), 400
-
-    students = (
-        User.query.filter(func.lower(func.trim(User.role)) == "user", func.trim(User.kelas) == source_class)
-        .order_by(asc(User.fullname))
-        .all()
-    )
-
-    return jsonify({"data": [_serialize_user(student) for student in students], "total": len(students)})
-
-
-@api.route("/admin/classes/move", methods=["POST"])
-def move_students_class():
-    is_allowed, _, status = _get_admin_user()
-    if not is_allowed:
-        return _, status
-
-    data = request.get_json() or {}
-    source_class = normalize_class_name(data.get("source_class"))
-    target_class = normalize_class_name(data.get("target_class"))
-    exclude_user_ids = data.get("exclude_user_ids") or []
-
-    if not source_class or not target_class:
-        return jsonify({"message": "source_class dan target_class wajib diisi"}), 400
-    if (
-        not is_valid_class_name(source_class)
-        or not is_valid_class_name(target_class)
-        or not _is_valid_fixed_class(source_class)
-        or not _is_valid_fixed_class(target_class)
-    ):
-        return jsonify({"message": "source_class/target_class tidak valid"}), 400
-
-    if source_class == target_class:
-        return jsonify({"message": "Kelas asal dan kelas tujuan tidak boleh sama"}), 400
-
-    if not isinstance(exclude_user_ids, list):
-        return jsonify({"message": "exclude_user_ids harus berupa array"}), 400
-
-    try:
-        excluded_ids = {int(user_id) for user_id in exclude_user_ids}
-    except (TypeError, ValueError):
-        return jsonify({"message": "exclude_user_ids hanya boleh berisi angka id user"}), 400
-
-    students_in_source = (
-        User.query.filter(func.lower(func.trim(User.role)) == "user", func.trim(User.kelas) == source_class)
-        .order_by(asc(User.fullname))
-        .all()
-    )
-
-    if not students_in_source:
-        return jsonify({"message": "Tidak ada siswa pada kelas asal yang dipilih"}), 404
-
-    source_student_ids = {student.id for student in students_in_source}
-    invalid_ids = sorted(excluded_ids - source_student_ids)
-    if invalid_ids:
-        return jsonify({"message": "Sebagian exclude_user_ids tidak valid untuk kelas asal", "invalid_ids": invalid_ids}), 400
-
-    students_to_move = [student for student in students_in_source if student.id not in excluded_ids]
-    if not students_to_move:
-        return jsonify({"message": "Tidak ada siswa yang dipindahkan karena semua dikecualikan"}), 400
-
-    now = datetime.now()
-    for student in students_to_move:
-        student.kelas = target_class
-        student.updated_at = now
-
-    try:
-        db.session.commit()
-    except Exception as error:
-        db.session.rollback()
-        return jsonify({"message": f"Gagal memindahkan kelas: {error}"}), 500
-
-    return jsonify(
-        {
-            "message": "Pindah kelas massal berhasil",
-            "source_class": source_class,
-            "target_class": target_class,
-            "total_source_students": len(students_in_source),
-            "moved_count": len(students_to_move),
-            "excluded_count": len(excluded_ids),
-        }
-    )
-
-
 @api.route("/admin/accounts", methods=["POST"])
 def create_admin_account():
-    is_allowed, _, status = _get_admin_user()
+    is_allowed, payload, status = get_admin_user()
     if not is_allowed:
-        return _, status
+        return payload, status
 
     data = request.get_json() or {}
     fullname = (data.get("fullname") or "").strip()
@@ -365,11 +90,11 @@ def create_admin_account():
     if password is None:
         return jsonify({"message": "password wajib diisi"}), 400
 
-    validation_errors = _validate_account_fields(fullname, email, role, kode, kelas)
+    validation_errors = validate_account_fields(fullname, email, role, kode, kelas)
     if validation_errors:
         return jsonify({"message": "Validasi akun gagal", "errors": validation_errors}), 400
 
-    password_error = _validate_password_strength(password)
+    password_error = validate_password_strength(password)
     if password_error:
         return jsonify({"message": password_error}), 400
 
@@ -396,7 +121,7 @@ def create_admin_account():
     try:
         db.session.add(user)
         db.session.commit()
-        return jsonify({"message": "Akun berhasil dibuat", "data": _serialize_user(user)}), 201
+        return jsonify({"message": "Akun berhasil dibuat", "data": serialize_user(user)}), 201
     except Exception as error:
         db.session.rollback()
         return jsonify({"message": f"Gagal membuat akun: {error}"}), 500
@@ -404,9 +129,9 @@ def create_admin_account():
 
 @api.route("/admin/accounts/<int:user_id>", methods=["PUT"])
 def update_admin_account(user_id):
-    is_allowed, _, status = _get_admin_user()
+    is_allowed, payload, status = get_admin_user()
     if not is_allowed:
-        return _, status
+        return payload, status
 
     user = User.query.get_or_404(user_id)
     data = request.get_json() or {}
@@ -441,7 +166,7 @@ def update_admin_account(user_id):
     else:
         normalized_kelas = normalize_class_name(user.kelas)
 
-    validation_errors = _validate_account_fields(
+    validation_errors = validate_account_fields(
         normalized_fullname,
         normalized_email,
         normalized_role,
@@ -453,7 +178,7 @@ def update_admin_account(user_id):
         return jsonify({"message": "Validasi akun gagal", "errors": validation_errors}), 400
 
     if password_input is not None and password_input != "":
-        password_error = _validate_password_strength(password_input)
+        password_error = validate_password_strength(password_input)
         if password_error:
             return jsonify({"message": password_error}), 400
         user.password_hash = bcrypt.generate_password_hash(password_input).decode("utf-8")
@@ -477,7 +202,7 @@ def update_admin_account(user_id):
 
     try:
         db.session.commit()
-        return jsonify({"message": "Akun berhasil diperbarui", "data": _serialize_user(user)})
+        return jsonify({"message": "Akun berhasil diperbarui", "data": serialize_user(user)})
     except Exception as error:
         db.session.rollback()
         return jsonify({"message": f"Gagal memperbarui akun: {error}"}), 500
@@ -485,7 +210,7 @@ def update_admin_account(user_id):
 
 @api.route("/admin/accounts/<int:user_id>", methods=["DELETE"])
 def delete_admin_account(user_id):
-    is_allowed, admin_user, status = _get_admin_user()
+    is_allowed, admin_user, status = get_admin_user()
     if not is_allowed:
         return admin_user, status
 
@@ -505,7 +230,7 @@ def delete_admin_account(user_id):
 
 @api.route("/admin/accounts/bulk-delete", methods=["POST"])
 def bulk_delete_admin_accounts():
-    is_allowed, admin_user, status = _get_admin_user()
+    is_allowed, admin_user, status = get_admin_user()
     if not is_allowed:
         return admin_user, status
 
@@ -547,7 +272,7 @@ def bulk_delete_admin_accounts():
 
 @api.route("/admin/accounts/<int:user_id>/reset-password", methods=["POST"])
 def reset_admin_account_password(user_id):
-    is_allowed, admin_user, status = _get_admin_user()
+    is_allowed, admin_user, status = get_admin_user()
     if not is_allowed:
         return admin_user, status
 
@@ -559,7 +284,7 @@ def reset_admin_account_password(user_id):
     if password is None:
         return jsonify({"message": "password wajib diisi"}), 400
 
-    password_error = _validate_password_strength(password)
+    password_error = validate_password_strength(password)
     if password_error:
         return jsonify({"message": password_error}), 400
 
@@ -583,9 +308,9 @@ def reset_admin_account_password(user_id):
 
 @api.route("/admin/accounts/import-csv", methods=["POST"])
 def import_admin_accounts_csv():
-    is_allowed, _, status = _get_admin_user()
+    is_allowed, payload, status = get_admin_user()
     if not is_allowed:
-        return _, status
+        return payload, status
 
     csv_file = request.files.get("file")
     if not csv_file:
@@ -667,13 +392,13 @@ def import_admin_accounts_csv():
         kode = (row.get("kode") or "").strip() or None
         kelas = normalize_class_name(row.get("kelas"))
 
-        row_validation_errors = _validate_account_fields(fullname, email, role, kode, kelas)
+        row_validation_errors = validate_account_fields(fullname, email, role, kode, kelas)
         if row_validation_errors:
             failed += 1
             errors.append({"row": row_index, "message": "; ".join(row_validation_errors)})
             continue
 
-        password_error = _validate_password_strength(password)
+        password_error = validate_password_strength(password)
         if password_error:
             failed += 1
             errors.append({"row": row_index, "message": password_error})
@@ -713,11 +438,3 @@ def import_admin_accounts_csv():
         return jsonify({"message": f"Gagal import CSV: {error}"}), 500
 
     return jsonify({"message": "Import CSV selesai", "imported": imported, "failed": failed, "errors": errors})
-
-
-@api.route("/admin/classes/fixed", methods=["GET"])
-def get_fixed_classes():
-    is_allowed, _, status = _get_admin_user()
-    if not is_allowed:
-        return _, status
-    return jsonify({"data": _get_fixed_classes()})

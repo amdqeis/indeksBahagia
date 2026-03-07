@@ -60,8 +60,8 @@ export default function Navbar() {
         <div className="flex justify-between h-16">
           <div className="flex items-center">
             <Link href="/" className="flex-shrink-0 flex items-center">
-              <motion.div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600" whileHover={{ rotate: 6, scale: 1.05 }}>
-                <img src="/logo.png" alt="Logo APK" />
+              <motion.div className="flex h-8 w-8 items-center justify-center rounded-lg" whileHover={{ rotate: 6, scale: 1.05 }}>
+                <img src="/logo_arrafi.png" alt="Logo APK" />
               </motion.div>
               <motion.span className="ml-2 text-xl font-bold text-gray-900">HappinessIndex</motion.span>
             </Link>

@@ -31,7 +31,7 @@ export default function HomePage() {
             </h1>
 
             <p className="mt-4 max-w-xl text-sm text-white/90 sm:text-base md:text-lg">
-              Platform pemantauan kebahagiaan sekolah dengan insight cepat, akurat, dan mudah dipahami.
+              Platform pemantauan kebahagiaan sekolah.
             </p>
 
             <div className="mt-6 flex flex-wrap gap-3">
@@ -49,10 +49,6 @@ export default function HomePage() {
             </div>
           </div>
 
-          <div className="hidden max-w-xs text-right text-white/90 md:block">
-            <p className="text-lg font-medium">School happiness direction</p>
-            <p className="text-xs text-white/75">6 March 2026</p>
-          </div>
         </div>
       </div>
     </section>
