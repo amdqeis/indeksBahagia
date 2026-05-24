@@ -1,0 +1,27 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: indeksBahagia_backend
+    env_file:
+      - ./backend/.env
+    restart: unless-stopped
+    networks:
+      - caddy_net
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: indeksBahagia_frontend
+    env_file:
+      - ./frontend/.env.local
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - caddy_net
+
+networks:
+  caddy_net:
+    external: true
+
